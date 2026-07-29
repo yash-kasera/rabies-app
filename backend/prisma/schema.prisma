@@ -1,0 +1,245 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "windows"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  user
+  hospital
+  government
+}
+
+enum ReportStatus {
+  Reported
+  Accepted
+  UnderTreatment
+  Completed
+  Cancelled
+}
+
+enum Source {
+  user_report
+  hospital_direct
+}
+
+enum AnimalType {
+  Dog
+  Cat
+  Monkey
+  Bat
+  Other
+}
+
+enum AnimalStatus {
+  LookedHealthy
+  LookedSickOrAggressive
+  Stray
+  OwnedAndVaccinated
+  Unknown
+}
+
+enum Severity {
+  MinorScratch
+  BleedingWound
+  DeepWound
+  MultipleBites
+}
+
+enum HospitalStatus {
+  Active
+  Inactive
+}
+
+enum NotificationTargetType {
+  all
+  city
+  radius
+}
+
+enum NotificationCategory {
+  OutbreakAlert
+  GeneralAwareness
+  NewHospital
+  MaintenanceNotice
+}
+
+model City {
+  id        Int    @id @default(autoincrement())
+  name      String
+  state     String
+  latitude  Float?
+  longitude Float?
+
+  users         User[]
+  hospitals     Hospital[]
+  biteReports   BiteReport[]
+  notifications Notification[]
+
+  @@map("cities")
+}
+
+model User {
+  id                 Int      @id @default(autoincrement())
+  fullName           String   @map("full_name")
+  phoneNumber        String   @unique @map("phone_number")
+  email              String?
+  passwordHash       String   @map("password_hash")
+  cityId             Int      @map("city_id")
+  role               Role     @default(user)
+  fcmToken           String?  @map("fcm_token")
+  phoneVerified      Boolean  @default(false) @map("phone_verified")
+  mustChangePassword Boolean  @default(false) @map("must_change_password")
+  hospitalId         Int?     @map("hospital_id")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  city         City         @relation(fields: [cityId], references: [id])
+  hospital     Hospital?    @relation("HospitalAccount", fields: [hospitalId], references: [id])
+  biteReports  BiteReport[]
+  createdCases Case[]       @relation("CaseCreator")
+
+  @@map("users")
+}
+
+model Hospital {
+  id            Int            @id @default(autoincrement())
+  name          String
+  cityId        Int            @map("city_id")
+  address       String
+  latitude      Float
+  longitude     Float
+  contactNumber String         @map("contact_number")
+  contactEmail  String?        @map("contact_email")
+  status        HospitalStatus @default(Active)
+  createdBy     Int            @map("created_by")
+  createdAt     DateTime       @default(now()) @map("created_at")
+
+  city        City         @relation(fields: [cityId], references: [id])
+  accounts    User[]       @relation("HospitalAccount")
+  cases       Case[]
+  biteReports BiteReport[]
+
+  @@map("hospitals")
+}
+
+model BiteReport {
+  id                   Int          @id @default(autoincrement())
+  userId               Int          @map("user_id")
+  victimName           String       @map("victim_name")
+  contactNumber        String       @map("contact_number")
+  latitude             Float
+  longitude            Float
+  cityId               Int          @map("city_id")
+  incidentDatetime     DateTime     @map("incident_datetime")
+  animalType           AnimalType   @map("animal_type")
+  animalStatus         AnimalStatus @map("animal_status")
+  severity             Severity
+  photoUrl             String?      @map("photo_url")
+  status               ReportStatus @default(Reported)
+  acceptedByHospitalId Int?         @map("accepted_by_hospital_id")
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id])
+  city     City      @relation(fields: [cityId], references: [id])
+  hospital Hospital? @relation(fields: [acceptedByHospitalId], references: [id])
+  case_    Case?
+
+  @@map("bite_reports")
+}
+
+model Case {
+  id               Int          @id @default(autoincrement())
+  biteReportId     Int?         @unique @map("bite_report_id")
+  hospitalId       Int          @map("hospital_id")
+  patientName      String       @map("patient_name")
+  contactNumber    String       @map("contact_number")
+  address          String?
+  incidentDatetime DateTime     @map("incident_datetime")
+  animalType       AnimalType   @map("animal_type")
+  animalStatus     AnimalStatus @map("animal_status")
+  severity         Severity
+  treatmentNotes   String?      @map("treatment_notes")
+  status           ReportStatus @default(Accepted)
+  source           Source       @default(user_report)
+  createdBy        Int          @map("created_by")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  biteReport BiteReport?  @relation(fields: [biteReportId], references: [id])
+  hospital   Hospital     @relation(fields: [hospitalId], references: [id])
+  creator    User         @relation("CaseCreator", fields: [createdBy], references: [id])
+  doses      VaccineDose[]
+
+  @@map("cases")
+}
+
+model VaccineDose {
+  id            Int       @id @default(autoincrement())
+  caseId        Int       @map("case_id")
+  doseNumber    Int       @map("dose_number")
+  scheduledDate DateTime  @map("scheduled_date")
+  givenDate     DateTime? @map("given_date")
+  givenBy       Int?      @map("given_by")
+
+  case_ Case @relation(fields: [caseId], references: [id])
+
+  @@map("vaccine_doses")
+}
+
+model Notification {
+  id             Int                      @id @default(autoincrement())
+  title          String
+  body           String
+  category       NotificationCategory
+  targetType     NotificationTargetType   @map("target_type")
+  targetCityId   Int?                     @map("target_city_id")
+  targetLat      Float?                   @map("target_lat")
+  targetLng      Float?                   @map("target_lng")
+  targetRadiusKm Float?                   @map("target_radius_km")
+  sentBy         Int                      @map("sent_by")
+  sentAt         DateTime                 @default(now()) @map("sent_at")
+
+  city City? @relation(fields: [targetCityId], references: [id])
+
+  @@map("notifications")
+}
+
+model ContentSection {
+  id        Int      @id @default(autoincrement())
+  sectionKey String  @unique @map("section_key")
+  title     String
+  body      String
+  order     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("content_sections")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  action    String
+  entity    String
+  entityId  Int?     @map("entity_id")
+  details   String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("audit_logs")
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("password_reset_tokens")
+}
