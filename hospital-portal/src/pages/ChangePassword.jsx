@@ -1,89 +1,75 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { CircleCheck, KeyRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import api from '../services/api'
+import { Button, Field, Notice } from '../components/ui'
 
-const MIN_PASSWORD_LENGTH = 8
+const MIN = 8
 
 export default function ChangePassword() {
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
-  const handleSubmit = async (e) => {
+  const submit = async (e) => {
     e.preventDefault()
     setError('')
-    if (newPassword !== confirmPassword) {
-      setError('New passwords do not match')
-      return
-    }
-    setLoading(true)
+    if (next !== confirm) return setError('Passwords do not match.')
+    setSaving(true)
     try {
-      await api.post('/auth/change-password', { currentPassword, newPassword })
+      await api.post('/auth/change-password', { currentPassword: current, newPassword: next })
       setDone(true)
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to change password')
+      setError(err.response?.data?.error || 'Could not change the password')
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
-  const loginAgain = () => {
-    logout()
-    navigate('/login', { replace: true })
-  }
-
-  if (done) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-bg dark:bg-bg-dark p-4">
-        <div className="w-full max-w-md card p-8 text-center">
-          <p className="text-4xl mb-4">✅</p>
-          <h1 className="text-xl font-bold text-text-primary dark:text-text-primary-dark mb-2">Password Changed</h1>
-          <p className="text-text-secondary dark:text-text-secondary-dark mb-6">Log in again with your new password.</p>
-          <button onClick={loginAgain} className="btn-primary w-full">
-            Login Again
-          </button>
-        </div>
-      </div>
-    )
-  }
+  const again = () => { logout(); navigate('/login', { replace: true }) }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg dark:bg-bg-dark p-4">
-      <div className="w-full max-w-md card p-8">
-        <h1 className="text-xl font-bold text-text-primary dark:text-text-primary-dark mb-2">Change Your Password</h1>
-        <p className="text-sm text-text-secondary dark:text-text-secondary-dark mb-6">
-          {user?.mustChangePassword
-            ? 'You are using a temporary password. Set a new password to continue.'
-            : 'Set a new password for your account.'}
-        </p>
-        {error && <div className="bg-danger/10 text-danger dark:text-danger-dark p-3 rounded-lg text-sm mb-4">{error}</div>}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">Current Password</label>
-            <input type="password" className="input-field" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">New Password</label>
-            <input type="password" className="input-field" value={newPassword} onChange={e => setNewPassword(e.target.value)} required minLength={MIN_PASSWORD_LENGTH} />
-            <p className="text-xs text-text-secondary dark:text-text-secondary-dark mt-1">At least {MIN_PASSWORD_LENGTH} characters</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">Confirm New Password</label>
-            <input type="password" className="input-field" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required minLength={MIN_PASSWORD_LENGTH} />
-          </div>
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Saving...' : 'Change Password'}
-          </button>
-          <button type="button" onClick={loginAgain} className="text-xs text-text-secondary dark:text-text-secondary-dark hover:underline w-full text-center block">
-            Log out
-          </button>
-        </form>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div className="rr-card rr-card--pad-lg" style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {done ? (
+          <>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ flex: 'none', display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 999, background: 'var(--color-success-container)', color: 'var(--color-on-success-container)' }}><CircleCheck size={20} aria-hidden /></span>
+              <div><h1 style={{ margin: 0, fontSize: 20, lineHeight: '28px', fontWeight: 600 }}>Password changed</h1><p style={{ margin: '4px 0 0', color: 'var(--color-text-secondary)' }}>Log in again with your new password.</p></div>
+            </div>
+            <Button block onClick={again}>Log in again</Button>
+          </>
+        ) : (
+          <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ flex: 'none', display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 999, background: 'var(--color-primary-container)', color: 'var(--color-on-primary-container)' }}><KeyRound size={20} aria-hidden /></span>
+              <div>
+                <h1 style={{ margin: 0, fontSize: 22, lineHeight: '30px', fontWeight: 600 }}>Change password</h1>
+                <p style={{ margin: '4px 0 0', color: 'var(--color-text-secondary)' }}>
+                  {user?.mustChangePassword ? 'You are using a temporary password. Set a new password to continue.' : 'Choose a new password for your account.'}
+                </p>
+              </div>
+            </div>
+            {error && <Notice>{error}</Notice>}
+            <Field label="Current password" htmlFor="cp-cur">
+              <input id="cp-cur" className="rr-input" type="password" autoComplete="current-password" required value={current} onChange={e => setCurrent(e.target.value)} />
+            </Field>
+            <Field label="New password" htmlFor="cp-new" hint={`At least ${MIN} characters`}>
+              <input id="cp-new" className="rr-input" type="password" autoComplete="new-password" minLength={MIN} required value={next} onChange={e => setNext(e.target.value)} />
+            </Field>
+            <Field label="Confirm new password" htmlFor="cp-conf">
+              <input id="cp-conf" className="rr-input" type="password" autoComplete="new-password" minLength={MIN} required value={confirm} onChange={e => setConfirm(e.target.value)} />
+            </Field>
+            <button type="submit" className="rr-btn rr-btn--primary rr-btn--block" disabled={saving}><span className="rr-btn__label">{saving ? 'Saving…' : 'Change Password'}</span></button>
+            <Button kind="text" style={{ alignSelf: 'center' }} onClick={again}>Log out</Button>
+          </form>
+        )}
       </div>
     </div>
   )

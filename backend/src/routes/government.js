@@ -6,19 +6,28 @@ const { authenticate, authorize } = require("../middleware/auth");
 const { auditMiddleware } = require("../middleware/audit");
 const { tehsilOf, TEHSIL_NAMES } = require("../utils/tehsil");
 const { distanceKm, round1 } = require("../utils/geo");
-const { broadcastReportAccepted } = require("../utils/socket");
+const { broadcastReportAccepted, broadcastReportRemoved, broadcastNewReport } = require("../utils/socket");
+const { deleteReport, actorOf, logActivity } = require("../utils/activity");
 const {
   MIN_PASSWORD_LENGTH, ENUMS, isOneOf, normalizePhone, isValidPassword, isValidEmail, parseCoordinate, parseId, parseDate,
 } = require("../utils/validation");
 
+const { generateTempPassword } = require("../utils/passwords");
+
 const router = Router();
+
+async function requireSuperAdmin(req, res, next) {
+  try {
+    const me = await prisma.user.findUnique({ where: { id: req.user.id }, select: { isAdmin: true, role: true } });
+    if (me?.role === "government" && me.isAdmin) return next();
+    res.status(403).json({ error: "Only the super admin can do this" });
+  } catch (err) {
+    next(err);
+  }
+}
 
 router.use(authenticate);
 router.use(authorize("government"));
-
-function generateTempPassword() {
-  return crypto.randomBytes(9).toString("base64url");
-}
 
 function dateRange(from, to) {
   const fromDate = parseDate(from);
@@ -303,12 +312,17 @@ router.get("/audience", async (req, res) => {
 router.get("/hospitals", async (req, res) => {
   try {
     const hospitals = await prisma.hospital.findMany({
+      where: { deletedAt: null },
       orderBy: { name: "asc" },
       include: {
         city: true,
         _count: { select: { cases: true } },
         cases: { where: { status: { in: OPEN_CASE } }, select: { id: true } },
-        accounts: { where: { role: "hospital" }, select: { id: true, email: true, mustChangePassword: true } },
+        accounts: {
+          where: { role: "hospital", disabledAt: null },
+          select: { id: true, email: true, mustChangePassword: true, isAdmin: true },
+          orderBy: [{ isAdmin: "desc" }, { id: "asc" }],
+        },
       },
     });
     res.json(hospitals.map(({ cases, ...h }) => ({ ...h, openCases: cases.length, tehsil: tehsilOf(h.latitude, h.longitude) })));
@@ -393,6 +407,7 @@ router.post("/hospitals", auditMiddleware("create", "Hospital"), async (req, res
           role: "hospital",
           cityId: city.id,
           hospitalId: hospital.id,
+          isAdmin: true,
           mustChangePassword: true,
         },
       });
@@ -412,7 +427,7 @@ router.post("/hospitals", auditMiddleware("create", "Hospital"), async (req, res
 router.patch("/hospitals/:id", auditMiddleware("update", "Hospital"), async (req, res) => {
   try {
     const hospitalId = parseId(req.params.id);
-    const existing = hospitalId && await prisma.hospital.findUnique({ where: { id: hospitalId } });
+    const existing = hospitalId && await prisma.hospital.findFirst({ where: { id: hospitalId, deletedAt: null } });
     if (!existing) return res.status(404).json({ error: "Hospital not found" });
 
     const { name, cityId, address, latitude, longitude, contactNumber, contactEmail, status } = req.body;
@@ -462,8 +477,8 @@ router.post("/hospitals/:id/reset-staff-password", auditMiddleware("reset-passwo
   try {
     const hospitalId = parseId(req.params.id);
     const staff = hospitalId && await prisma.user.findFirst({
-      where: { hospitalId, role: "hospital" },
-      orderBy: { id: "asc" },
+      where: { hospitalId, role: "hospital", disabledAt: null },
+      orderBy: [{ isAdmin: "desc" }, { id: "asc" }],
     });
     if (!staff) return res.status(404).json({ error: "No staff account found for this hospital" });
 
@@ -537,7 +552,7 @@ router.get("/staff", async (req, res) => {
   try {
     const staff = await prisma.user.findMany({
       where: { role: "government" },
-      select: { id: true, fullName: true, email: true, phoneNumber: true, createdAt: true, mustChangePassword: true },
+      select: { id: true, fullName: true, email: true, phoneNumber: true, createdAt: true, mustChangePassword: true, isAdmin: true },
       orderBy: { createdAt: "asc" },
     });
     // Staff without a mobile number have their email stored as the (unique) login id.
@@ -549,7 +564,7 @@ router.get("/staff", async (req, res) => {
 });
 
 // Creates a staff account with a temporary password (shown once; must be changed at first login).
-router.post("/staff", auditMiddleware("create", "StaffAccount"), async (req, res) => {
+router.post("/staff", requireSuperAdmin, auditMiddleware("create", "StaffAccount"), async (req, res) => {
   try {
     const { fullName, email, phoneNumber } = req.body;
     if (!fullName?.trim() || !email) return res.status(400).json({ error: "Full name and email are required" });
@@ -593,7 +608,7 @@ router.post("/staff", auditMiddleware("create", "StaffAccount"), async (req, res
   }
 });
 
-router.post("/staff/:id/reset-password", auditMiddleware("reset-password", "StaffAccount"), async (req, res) => {
+router.post("/staff/:id/reset-password", requireSuperAdmin, auditMiddleware("reset-password", "StaffAccount"), async (req, res) => {
   try {
     const id = parseId(req.params.id);
     if (id === req.user.id) return res.status(400).json({ error: "Use Change password to update your own password" });
@@ -612,4 +627,120 @@ router.post("/staff/:id/reset-password", auditMiddleware("reset-password", "Staf
   }
 });
 
+// ---------------------------------------------------------------- deletions
+
+const cleanReason = (body) => (typeof body?.reason === "string" ? body.reason.trim().slice(0, 500) : "");
+
+router.delete("/reports/:id", auditMiddleware("delete", "BiteReport"), async (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    const reason = cleanReason(req.body);
+    if (!reason) return res.status(400).json({ error: "Give a reason for deleting this report" });
+    const deleted = id && await deleteReport(id, req.user.id, reason);
+    if (!deleted) return res.status(404).json({ error: "Report not found" });
+    broadcastReportRemoved(deleted.id, deleted.cityId);
+    res.json({ deleted: true, id });
+  } catch (err) {
+    console.error("Gov delete report error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Removing a hospital: its logins stop working, open cases are closed and their bite reports
+// go back to "waiting" so another hospital can accept them. The hospital record and its
+// finished cases stay (hidden) so treatment history is not lost.
+router.delete("/hospitals/:id", auditMiddleware("delete", "Hospital"), async (req, res) => {
+  try {
+    const hospitalId = parseId(req.params.id);
+    const reason = cleanReason(req.body);
+    const hospital = hospitalId && await prisma.hospital.findFirst({ where: { id: hospitalId, deletedAt: null } });
+    if (!hospital) return res.status(404).json({ error: "Hospital not found" });
+    const actor = await actorOf(req.user.id);
+
+    const { reopened, closedWalkIns, accounts } = await prisma.$transaction(async (tx) => {
+      const open = await tx.case.findMany({ where: { hospitalId, status: { in: OPEN_CASE } } });
+      const reopened = [];
+      for (const c of open) {
+        await tx.case.update({
+          where: { id: c.id },
+          data: {
+            status: "Cancelled",
+            biteReportId: null,
+            treatmentNotes: [c.treatmentNotes, `Closed: ${hospital.name} was removed from the system.`].filter(Boolean).join("\n"),
+          },
+        });
+        if (c.biteReportId) {
+          const r = await tx.biteReport.update({
+            where: { id: c.biteReportId },
+            data: { status: "Reported", acceptedByHospitalId: null },
+          });
+          reopened.push(r);
+        }
+      }
+      const users = await tx.user.findMany({ where: { hospitalId, disabledAt: null }, select: { id: true, email: true } });
+      for (const u of users) {
+        await tx.user.update({
+          where: { id: u.id },
+          data: { disabledAt: new Date(), email: null, phoneNumber: `removed-${u.id}`, fcmToken: null },
+        });
+      }
+      await tx.hospital.update({ where: { id: hospitalId }, data: { deletedAt: new Date(), status: "Inactive" } });
+      await logActivity(tx, {
+        action: "hospital_deleted", ...actor,
+        subject: hospital.name,
+        reason: reason || null,
+        details: {
+          hospitalId, address: hospital.address, contactNumber: hospital.contactNumber,
+          logins: users.map((u) => u.email).filter(Boolean),
+          reportsReturnedToWaiting: reopened.map((r) => r.id),
+          walkInCasesClosed: open.length - reopened.length,
+        },
+      });
+      return { reopened, closedWalkIns: open.length - reopened.length, accounts: users.length };
+    });
+
+    // Reports that went back to waiting show up again for the city's hospitals.
+    reopened.forEach((r) => broadcastNewReport(r, r.cityId));
+    res.json({ deleted: true, reportsReturnedToWaiting: reopened.length, walkInCasesClosed: closedWalkIns, loginsRemoved: accounts });
+  } catch (err) {
+    console.error("Delete hospital error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------- activity log
+
+router.get("/logs", async (req, res) => {
+  try {
+    const page = Math.max(1, parseId(req.query.page) || 1);
+    const pageSize = 25;
+    const [logs, total] = await Promise.all([
+      prisma.activityLog.findMany({ orderBy: { createdAt: "desc" }, skip: (page - 1) * pageSize, take: pageSize }),
+      prisma.activityLog.count(),
+    ]);
+    const me = await prisma.user.findUnique({ where: { id: req.user.id }, select: { isAdmin: true } });
+    res.json({ logs, total, page, pageSize, canClear: !!me?.isAdmin });
+  } catch (err) {
+    console.error("Get logs error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Clears the log. One entry recording who cleared it (and how many entries) is kept.
+router.delete("/logs", requireSuperAdmin, auditMiddleware("clear", "ActivityLog"), async (req, res) => {
+  try {
+    const actor = await actorOf(req.user.id);
+    const cleared = await prisma.$transaction(async (tx) => {
+      const { count } = await tx.activityLog.deleteMany({});
+      await tx.activityLog.create({ data: { action: "log_cleared", ...actor, subject: "Activity log", details: { entriesCleared: count } } });
+      return { count };
+    });
+    res.json({ cleared: cleared.count });
+  } catch (err) {
+    console.error("Clear logs error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;
+

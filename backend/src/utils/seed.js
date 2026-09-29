@@ -50,6 +50,7 @@ async function seed() {
       role: "government",
       cityId: city.id,
       phoneVerified: true,
+      isAdmin: true, // super admin: the only account that can add government staff or clear the activity log
     },
   });
 

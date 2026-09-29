@@ -33,6 +33,11 @@ export function onReportAccepted(callback) {
   return () => socket.off('report-accepted', callback)
 }
 
+export function onReportRemoved(callback) {
+  socket.on('report-removed', callback)
+  return () => socket.off('report-removed', callback)
+}
+
 /** { connected, since } — drives the header's Live indicator and the connection-lost banner. */
 export function useSocketStatus() {
   const [state, setState] = useState({ connected: socket.connected, since: new Date() })

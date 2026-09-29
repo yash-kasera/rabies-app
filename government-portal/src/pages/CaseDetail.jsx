@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Siren, Phone, Hospital, Printer, ImageOff, Image as ImageIcon, RefreshCw, FileX,
-  CircleCheck, Clock, CalendarClock, Circle, Mic, Play,
+  CircleCheck, Clock, CalendarClock, Circle, Mic, Play, Trash2,
 } from 'lucide-react'
 import api from '../services/api'
-import { onReportAccepted } from '../services/socket'
+import { onReportAccepted, onReportRemoved } from '../services/socket'
+import DeleteReportDialog from '../components/DeleteReportDialog'
 import { Badge, Button, Dialog, Notice, Skeleton, StateView, useToast, fmtDateTime, fmtDay, fmtPhone, minutesAgo, reportNumber } from '../components/ui'
 
 const ANIMAL_STATUS = {
@@ -86,6 +87,8 @@ function timeline(r) {
 export default function CaseDetail() {
   const { id } = useParams()
   const toast = useToast()
+  const navigate = useNavigate()
+  const [deleting, setDeleting] = useState(false)
   const [r, setR] = useState(null)
   const [error, setError] = useState(null) // 'notfound' | 'error'
   const [assignOpen, setAssignOpen] = useState(false)
@@ -100,6 +103,7 @@ export default function CaseDetail() {
   }, [id])
   useEffect(() => { load() }, [load])
   useEffect(() => onReportAccepted((e) => { if (String(e?.reportId ?? e?.id) === String(id)) load() }), [id, load])
+  useEffect(() => onReportRemoved((e) => { if (String(e?.reportId) === String(id)) setError('notfound') }), [id])
 
   const assign = async () => {
     setAssigning(true)
@@ -151,6 +155,7 @@ export default function CaseDetail() {
           <a className="rr-btn rr-btn--secondary" href={`tel:${r.contactNumber}`}><Phone size={20} aria-hidden /><span className="rr-btn__label">Call {fmtPhone(r.contactNumber)}</span></a>
           {unaccepted && <Button kind="emergency" icon={Hospital} onClick={() => { setChoice(r.nearestHospitals[0]?.id ?? null); setAssignOpen(true) }}>Assign hospital</Button>}
           <Button kind="text" icon={Printer} onClick={() => window.print()}>Print</Button>
+          <Button kind="text" icon={Trash2} style={{ color: 'var(--color-danger)' }} onClick={() => setDeleting(true)}>Delete</Button>
         </div>
       </section>
 
@@ -234,6 +239,11 @@ export default function CaseDetail() {
           </section>
         </div>
       </div>
+
+      {deleting && (
+        <DeleteReportDialog report={r} onClose={() => setDeleting(false)}
+          onDeleted={() => { toast(`Report from ${r.victimName} deleted. Recorded in the Activity Log.`); navigate('/dashboard', { replace: true }) }} />
+      )}
 
       {assignOpen && (
         <Dialog icon={Hospital} tone="emergency" title="Assign a hospital" onClose={() => setAssignOpen(false)} maxWidth={560}

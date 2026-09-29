@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Hospital, Megaphone, Users, Sun, Moon, LogOut, WifiOff, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, Hospital, Megaphone, Users, ScrollText, Sun, Moon, LogOut, WifiOff, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import { connectGovernment, disconnect, reconnect, onNewReport, onReportAccepted, useSocketStatus } from '../services/socket'
@@ -11,11 +11,12 @@ const NAV = [
   { to: '/hospitals', label: 'Manage Hospitals', icon: Hospital, match: ['/hospitals'] },
   { to: '/notifications', label: 'Notify Users', icon: Megaphone, match: ['/notifications'] },
   { to: '/staff', label: 'Staff Accounts', icon: Users, match: ['/staff'] },
+  { to: '/activity', label: 'Activity Log', icon: ScrollText, match: ['/activity'] },
 ]
 
 const TITLES = [
   [/^\/cases\//, 'Case details'], [/^\/hospitals\/\d+/, 'Hospital Cases'], [/^\/hospitals/, 'Manage Hospitals'],
-  [/^\/notifications/, 'Notify Users'], [/^\/staff/, 'Staff Accounts'], [/.*/, 'All Cases'],
+  [/^\/notifications/, 'Notify Users'], [/^\/staff/, 'Staff Accounts'], [/^\/activity/, 'Activity Log'], [/.*/, 'All Cases'],
 ]
 
 function useWide() {

@@ -21,6 +21,7 @@ function generateToken(user, expiresIn) {
       hospitalId: user.hospitalId || null,
       fullName: user.fullName,
       mustChangePassword: !!user.mustChangePassword,
+      isAdmin: !!user.isAdmin,
     },
     process.env.JWT_SECRET,
     { expiresIn: expiresIn || process.env.JWT_EXPIRES_IN || "7d" }
@@ -127,6 +128,9 @@ router.post("/login", async (req, res) => {
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
+    if (user.disabledAt) {
+      return res.status(403).json({ error: "This account has been removed. Contact your administrator.", code: "ACCOUNT_REMOVED" });
+    }
 
     let hospitalId = null;
     let hospitalName = null;
@@ -137,8 +141,11 @@ router.post("/login", async (req, res) => {
       if (!hospital) {
         return res.status(403).json({ error: "No hospital is linked to this account" });
       }
+      if (hospital.deletedAt) {
+        return res.status(403).json({ error: "This hospital has been removed from the system.", code: "HOSPITAL_REMOVED" });
+      }
       if (hospital.status !== "Active") {
-        return res.status(403).json({ error: "This hospital has been deactivated. Contact the government administrator." });
+        return res.status(403).json({ error: "This hospital has been deactivated. It no longer receives bite reports. Contact the District Health Office to reactivate it.", code: "HOSPITAL_INACTIVE" });
       }
       hospitalId = hospital.id;
       hospitalName = hospital.name;

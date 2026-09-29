@@ -20,6 +20,9 @@ function initSocket(server, corsOrigin = "*") {
       const decoded = verifyToken(token);
       if (decoded.mustChangePassword) return next(new Error("Password change required"));
 
+      const account = await prisma.user.findUnique({ where: { id: decoded.id }, select: { disabledAt: true } });
+      if (!account || account.disabledAt) return next(new Error("Account removed"));
+
       if (decoded.role === "hospital") {
         const hospital = decoded.hospitalId
           ? await prisma.hospital.findUnique({ where: { id: decoded.hospitalId } })
@@ -55,4 +58,9 @@ function broadcastReportAccepted(reportId, hospitalId, cityId) {
   io.to(`city-${cityId}`).to(GOVERNMENT_ROOM).emit("report-accepted", { reportId, hospitalId });
 }
 
-module.exports = { initSocket, broadcastNewReport, broadcastReportAccepted };
+function broadcastReportRemoved(reportId, cityId) {
+  if (!io) return;
+  io.to(`city-${cityId}`).to(GOVERNMENT_ROOM).emit("report-removed", { reportId });
+}
+
+module.exports = { initSocket, broadcastNewReport, broadcastReportAccepted, broadcastReportRemoved };

@@ -96,6 +96,10 @@ model User {
   fcmToken           String?  @map("fcm_token")
   phoneVerified      Boolean  @default(false) @map("phone_verified")
   mustChangePassword Boolean  @default(false) @map("must_change_password")
+  /// Government: the super admin. Hospital: the hospital's admin account (can add staff).
+  isAdmin            Boolean  @default(false) @map("is_admin")
+  /// Set when an account is removed; it can no longer log in (kept for the audit trail).
+  disabledAt         DateTime? @map("disabled_at")
   hospitalId         Int?     @map("hospital_id")
   createdAt          DateTime @default(now()) @map("created_at")
 
@@ -121,6 +125,8 @@ model Hospital {
   status        HospitalStatus @default(Active)
   createdBy     Int            @map("created_by")
   createdAt     DateTime       @default(now()) @map("created_at")
+  /// Deleted by the government: hidden everywhere, but its treatment history is kept.
+  deletedAt     DateTime?      @map("deleted_at")
 
   city        City         @relation(fields: [cityId], references: [id])
   accounts    User[]       @relation("HospitalAccount")
@@ -268,4 +274,21 @@ model ReportMedia {
 
   @@unique([reportId, kind])
   @@map("report_media")
+}
+
+// Deletions and other sensitive actions, shown in the government portal's Activity Log.
+// Actor and subject are stored as text so entries survive the records being deleted.
+model ActivityLog {
+  id           Int      @id @default(autoincrement())
+  action       String   // report_deleted | hospital_deleted | staff_removed | log_cleared
+  actorName    String   @map("actor_name")
+  actorRole    String   @map("actor_role")
+  hospitalName String?  @map("hospital_name")
+  subject      String
+  reason       String?
+  details      Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("activity_logs")
 }

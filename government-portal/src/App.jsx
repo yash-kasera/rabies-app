@@ -10,6 +10,7 @@ import ManageHospitals from './pages/ManageHospitals'
 import HospitalCases from './pages/HospitalCases'
 import NotifyUsers from './pages/NotifyUsers'
 import StaffAccounts from './pages/StaffAccounts'
+import ActivityLog from './pages/ActivityLog'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="hospitals/:id/cases" element={<HospitalCases />} />
         <Route path="notifications" element={<NotifyUsers />} />
         <Route path="staff" element={<StaffAccounts />} />
+        <Route path="activity" element={<ActivityLog />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

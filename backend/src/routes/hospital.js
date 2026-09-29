@@ -1,9 +1,13 @@
 const { Router } = require("express");
+const bcrypt = require("bcrypt");
 const prisma = require("../utils/prisma");
+const { deleteReport, actorOf, logActivity } = require("../utils/activity");
+const { generateTempPassword } = require("../utils/passwords");
+const { tehsilOf } = require("../utils/tehsil");
 const { authenticate, authorize } = require("../middleware/auth");
-const { broadcastReportAccepted } = require("../utils/socket");
+const { broadcastReportAccepted, broadcastReportRemoved } = require("../utils/socket");
 const { auditMiddleware } = require("../middleware/audit");
-const { ENUMS, isOneOf, normalizePhone, parseId, parseDate } = require("../utils/validation");
+const { ENUMS, isOneOf, normalizePhone, parseId, parseDate, isValidEmail } = require("../utils/validation");
 
 const router = Router();
 
@@ -19,10 +23,12 @@ router.use(async (req, res, next) => {
       include: { hospital: true },
     });
     if (!user?.hospital) return res.status(403).json({ error: "No hospital linked to this account" });
-    if (user.hospital.status !== "Active") {
+    if (user.disabledAt) return res.status(401).json({ error: "This account has been removed" });
+    if (user.hospital.deletedAt || user.hospital.status !== "Active") {
       return res.status(403).json({ error: "This hospital has been deactivated" });
     }
     req.hospital = user.hospital;
+    req.account = user;
     next();
   } catch (err) {
     console.error("Resolve hospital error:", err);
@@ -59,7 +65,7 @@ router.get("/incoming-reports", async (req, res) => {
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json(reports);
+    res.json(reports.map((r) => ({ ...r, tehsil: tehsilOf(r.latitude, r.longitude) })));
   } catch (err) {
     console.error("Get incoming reports error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -325,4 +331,141 @@ router.patch("/cases/:id", auditMiddleware("update", "Case"), async (req, res) =
   }
 });
 
+// Delete a bite report: one still waiting in this hospital's city, or one this hospital
+// accepted. The deletion is recorded in the government's activity log.
+router.delete("/reports/:id", auditMiddleware("delete", "BiteReport"), async (req, res) => {
+  try {
+    const id = parseId(req.params.id);
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim().slice(0, 500) : "";
+    if (!reason) return res.status(400).json({ error: "Give a reason for deleting this report" });
+    const report = id && await prisma.biteReport.findUnique({ where: { id } });
+    const allowed = report && report.cityId === req.hospital.cityId &&
+      (report.status === "Reported" || report.acceptedByHospitalId === req.hospital.id);
+    if (!allowed) return res.status(404).json({ error: "Report not found" });
+
+    const deleted = await deleteReport(id, req.user.id, reason);
+    if (deleted) broadcastReportRemoved(deleted.id, deleted.cityId);
+    res.json({ deleted: true, id });
+  } catch (err) {
+    console.error("Hospital delete report error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------- staff accounts
+// The hospital's admin account (created by the government) adds and removes staff.
+// Staff accounts cannot add more staff.
+const requireHospitalAdmin = (req, res, next) =>
+  req.account.isAdmin ? next() : res.status(403).json({ error: "Only the hospital admin can manage staff" });
+
+const STAFF_FIELDS = { id: true, fullName: true, email: true, phoneNumber: true, isAdmin: true, mustChangePassword: true, createdAt: true };
+
+router.get("/staff", async (req, res) => {
+  try {
+    const staff = await prisma.user.findMany({
+      where: { hospitalId: req.hospital.id, role: "hospital", disabledAt: null },
+      select: STAFF_FIELDS,
+      orderBy: [{ isAdmin: "desc" }, { createdAt: "asc" }],
+    });
+    res.json(staff.map((s) => ({ ...s, phoneNumber: s.phoneNumber === s.email ? null : s.phoneNumber })));
+  } catch (err) {
+    console.error("Get hospital staff error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/staff", requireHospitalAdmin, auditMiddleware("create", "HospitalStaff"), async (req, res) => {
+  try {
+    const { fullName, email, phoneNumber } = req.body;
+    if (!fullName?.trim() || !email) return res.status(400).json({ error: "Full name and email are required" });
+    const login = String(email).trim().toLowerCase();
+    if (!isValidEmail(login)) return res.status(400).json({ error: "Enter a valid email address" });
+    const phone = phoneNumber ? normalizePhone(phoneNumber) : null;
+    if (phoneNumber && !phone) return res.status(400).json({ error: "Enter a valid mobile number (10–15 digits)" });
+
+    const taken = await prisma.user.findFirst({
+      where: { OR: [{ phoneNumber: login }, { email: { equals: login, mode: "insensitive" } }, ...(phone ? [{ phoneNumber: phone }] : [])] },
+    });
+    if (taken) return res.status(409).json({ error: "That email or mobile number is already in use" });
+
+    const tempPassword = generateTempPassword();
+    const staff = await prisma.user.create({
+      data: {
+        fullName: fullName.trim(),
+        email: login,
+        phoneNumber: phone || login,
+        passwordHash: await bcrypt.hash(tempPassword, 10),
+        role: "hospital",
+        cityId: req.hospital.cityId,
+        hospitalId: req.hospital.id,
+        isAdmin: false,
+        mustChangePassword: true,
+      },
+    });
+    res.status(201).json({ id: staff.id, fullName: staff.fullName, email: staff.email, tempPassword });
+  } catch (err) {
+    console.error("Create hospital staff error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+async function findOwnStaff(req, res) {
+  const id = parseId(req.params.id);
+  if (id === req.user.id) {
+    res.status(400).json({ error: "You cannot do this to your own account" });
+    return null;
+  }
+  const staff = id && await prisma.user.findFirst({ where: { id, hospitalId: req.hospital.id, role: "hospital", disabledAt: null } });
+  if (!staff) {
+    res.status(404).json({ error: "Staff account not found" });
+    return null;
+  }
+  if (staff.isAdmin) {
+    res.status(403).json({ error: "The hospital admin account is managed by the government" });
+    return null;
+  }
+  return staff;
+}
+
+router.post("/staff/:id/reset-password", requireHospitalAdmin, auditMiddleware("reset-password", "HospitalStaff"), async (req, res) => {
+  try {
+    const staff = await findOwnStaff(req, res);
+    if (!staff) return;
+    const tempPassword = generateTempPassword();
+    await prisma.user.update({
+      where: { id: staff.id },
+      data: { passwordHash: await bcrypt.hash(tempPassword, 10), mustChangePassword: true },
+    });
+    res.json({ email: staff.email, tempPassword });
+  } catch (err) {
+    console.error("Reset hospital staff password error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Removing staff disables the login (the account stays for the audit trail) and frees the email.
+router.delete("/staff/:id", requireHospitalAdmin, auditMiddleware("remove", "HospitalStaff"), async (req, res) => {
+  try {
+    const staff = await findOwnStaff(req, res);
+    if (!staff) return;
+    const actor = await actorOf(req.user.id);
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: staff.id },
+        data: { disabledAt: new Date(), email: null, phoneNumber: `removed-${staff.id}`, fcmToken: null },
+      }),
+      logActivity(prisma, {
+        action: "staff_removed", ...actor,
+        subject: `${staff.fullName} (${staff.email})`,
+        details: { userId: staff.id, email: staff.email, hospital: req.hospital.name },
+      }),
+    ]);
+    res.json({ removed: true });
+  } catch (err) {
+    console.error("Remove hospital staff error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;
+

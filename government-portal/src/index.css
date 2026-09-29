@@ -14,3 +14,8 @@
 .rr-toggle.is-on { background: var(--color-success); }
 .rr-toggle.is-on::after { left: 18px; }
 .rr-tabular { font-variant-numeric: tabular-nums; }
+
+/* Tehsil map: gentle hover/focus instead of heavy outlines */
+.rr-tehsil { outline: none; }
+.rr-tehsil:hover { filter: brightness(0.96); }
+.rr-tehsil:focus-visible { stroke: var(--color-focus); stroke-width: 2; }

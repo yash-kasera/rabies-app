@@ -38,16 +38,19 @@ export default function TehsilMap({ view = VIEWS.district, counts = {}, selected
         style={{ display: 'block', width: '100%', height: 'auto', maxHeight: 320, overflow: 'visible' }}>
         {view.areas.map(a => {
           const n = counts[a.name]?.count ?? 0
+          const dim = selected && a.name !== selected
           return (
-            <path key={a.name} d={a.d} fillRule="evenodd" fill={bandFor(n, dark)[1]} stroke="var(--color-surface-alt)" strokeWidth="2.5" strokeLinejoin="round"
+            <path key={a.name} className="rr-tehsil" d={a.d} fillRule="evenodd" fill={bandFor(n, dark)[1]}
+              fillOpacity={dim ? 0.35 : 1} stroke="var(--color-surface)" strokeWidth="1.5" strokeLinejoin="round"
               role="button" tabIndex={0} aria-pressed={a.name === selected} aria-label={`${a.name} tehsil: ${n} cases`}
               onClick={() => onSelect?.(a.name === selected ? null : a.name)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(a.name === selected ? null : a.name) } }}
-              style={{ cursor: 'pointer', outline: 'none' }} />
+              style={{ cursor: 'pointer', transition: 'fill-opacity 120ms' }} />
           )
         })}
+        {/* Selected tehsil: a thin brand-colour outline on top (the others fade back). */}
         {view.areas.filter(a => a.name === selected).map(a => (
-          <path key="sel" d={a.d} fillRule="evenodd" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" strokeLinejoin="round" style={{ pointerEvents: 'none' }} />
+          <path key="sel" d={a.d} fillRule="evenodd" fill="none" stroke="var(--color-primary)" strokeWidth="1.5" strokeLinejoin="round" style={{ pointerEvents: 'none' }} />
         ))}
         <circle cx={city.x} cy={city.y} r="5" fill="var(--color-surface)" stroke="var(--color-text-primary)" strokeWidth="2" style={{ pointerEvents: 'none' }} />
         {markers.map(m => (
@@ -63,7 +66,8 @@ export default function TehsilMap({ view = VIEWS.district, counts = {}, selected
           <span key={a.name} aria-hidden="true" style={{
             position: 'absolute', ...pct(a.lx, a.ly), transform: 'translate(-50%,-50%)', pointerEvents: 'none',
             display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1px 6px', borderRadius: 7, whiteSpace: 'nowrap',
-            background: sel ? 'var(--color-text-primary)' : 'var(--color-surface)', color: sel ? 'var(--color-surface)' : 'var(--color-text-primary)',
+            background: sel ? 'var(--color-primary-container)' : 'var(--color-surface)', color: sel ? 'var(--color-on-primary-container)' : 'var(--color-text-primary)',
+            boxShadow: sel ? 'inset 0 0 0 1px var(--color-primary-border)' : 'none', opacity: selected && !sel ? 0.7 : 1,
           }}>
             <span style={{ fontSize: 12, lineHeight: '14px', fontWeight: 600 }}>{a.name}{a.approx ? '*' : ''}</span>
             <span className="rr-tabular" style={{ fontSize: 16, lineHeight: '18px', fontWeight: 600 }}>{counts[a.name]?.count ?? 0}</span>

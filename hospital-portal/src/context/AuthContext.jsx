@@ -21,6 +21,8 @@ function userFromPayload(payload) {
     hospitalId: payload.hospitalId,
     fullName: payload.fullName || '',
     mustChangePassword: !!payload.mustChangePassword,
+    // The hospital's admin account (created by the government) can manage staff.
+    isAdmin: !!payload.isAdmin,
   }
 }
 
@@ -46,11 +48,14 @@ export function AuthProvider({ children }) {
     setLoading(false)
   }, [token])
 
+  /** Throws { code: 'HOSPITAL_ONLY' } for non-hospital accounts; returns { mustChangePassword }. */
   const login = async (identifier, password) => {
     const res = await api.post('/auth/login', { identifier, password })
     const { token: newToken, mustChangePassword, hospitalName: hospName, user: account } = res.data
     if (account?.role !== 'hospital') {
-      throw { response: { data: { error: 'This portal is for hospital accounts only' } } }
+      const err = new Error('This portal is for hospital accounts only')
+      err.code = 'HOSPITAL_ONLY'
+      throw err
     }
     localStorage.setItem('token', newToken)
     if (hospName) localStorage.setItem('hospitalName', hospName)

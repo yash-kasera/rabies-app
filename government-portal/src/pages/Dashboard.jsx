@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import api from '../services/api'
-import { onNewReport, onReportAccepted } from '../services/socket'
+import { onNewReport, onReportAccepted, onReportRemoved } from '../services/socket'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
 import useCities from '../hooks/useCities'
@@ -82,8 +82,8 @@ export default function Dashboard() {
   // Live: refresh numbers as reports arrive or get accepted.
   useEffect(() => {
     const refresh = () => { loadStats(); loadTable(); if (mapMode === 'markers') loadPoints() }
-    const a = onNewReport(refresh), b = onReportAccepted(refresh)
-    return () => { a(); b() }
+    const a = onNewReport(refresh), b = onReportAccepted(refresh), c = onReportRemoved(refresh)
+    return () => { a(); b(); c() }
   }, [loadStats, loadTable, loadPoints, mapMode])
 
   const setFilter = (key) => (e) => { setPage(1); setFilters(f => ({ ...f, [key]: e.target.value })) }

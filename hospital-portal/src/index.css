@@ -1,32 +1,21 @@
-@tailwind base;
+/* Rabies Response design system (from the Claude Design export) */
+@import './rr/colors.css';
+@import './rr/typography.css';
+@import './rr/spacing.css';
+@import './rr/base.css';
+@import './rr/components.css';
+
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply font-sans bg-bg text-text-primary dark:bg-bg-dark dark:text-text-primary-dark transition-colors duration-200;
-  }
-}
+/* Portal-specific additions */
+.rr-toggle { position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--color-border-strong); transition: background-color var(--motion-fast) var(--ease-standard); }
+.rr-toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--color-surface); transition: left var(--motion-fast) var(--ease-standard); }
+.rr-toggle.is-on { background: var(--color-success); }
+.rr-toggle.is-on::after { left: 18px; }
+.rr-tabular { font-variant-numeric: tabular-nums; }
 
-@layer components {
-  .btn-primary {
-    @apply bg-primary text-white px-4 py-2 rounded-xl font-semibold hover:bg-primary-hover transition disabled:opacity-50;
-  }
-  .btn-emergency {
-    @apply bg-emergency text-white px-4 py-2 rounded-xl font-semibold hover:bg-red-700 transition dark:bg-emergency-dark;
-  }
-  .card {
-    @apply bg-surface dark:bg-surface-dark rounded-xl border border-border dark:border-border-dark shadow-sm;
-  }
-  .input-field {
-    @apply w-full px-4 py-3 rounded-lg bg-surface dark:bg-surface-dark border border-border dark:border-border-dark text-text-primary dark:text-text-primary-dark placeholder-text-secondary dark:placeholder-text-secondary-dark focus:outline-none focus:ring-2 focus:ring-primary dark:focus:ring-primary-dark transition;
-  }
-}
-
-@keyframes slide-in {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
-}
-.animate-slide-in {
-  animation: slide-in 0.3s ease-out;
-}
+/* Tehsil map: gentle hover/focus instead of heavy outlines */
+.rr-tehsil { outline: none; }
+.rr-tehsil:hover { filter: brightness(0.96); }
+.rr-tehsil:focus-visible { stroke: var(--color-focus); stroke-width: 2; }

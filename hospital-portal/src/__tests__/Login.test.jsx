@@ -14,5 +14,6 @@ test('renders hospital login form', () => {
       </ThemeProvider>
     </MemoryRouter>
   );
-  expect(screen.getByText('Hospital Login')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+  expect(screen.getByText('Hospital Portal')).toBeInTheDocument();
 });

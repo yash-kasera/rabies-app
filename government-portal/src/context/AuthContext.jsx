@@ -15,7 +15,7 @@ function decodeToken(token) {
 }
 
 function userFromPayload(payload) {
-  return { id: payload.id, role: payload.role, fullName: payload.fullName || '', mustChangePassword: !!payload.mustChangePassword }
+  return { id: payload.id, role: payload.role, fullName: payload.fullName || '', mustChangePassword: !!payload.mustChangePassword, isAdmin: !!payload.isAdmin }
 }
 
 export function AuthProvider({ children }) {
