@@ -20,15 +20,29 @@ class TehsilView {
   final double width, height;
   final Offset city;
   final List<TehsilShape> areas;
-  TehsilView(this.width, this.height, this.city, this.areas);
+
+  /// Margin (in map units) cropped off each side. The zoomed city view is cut out of
+  /// the district, so its outer tehsils end in straight edges at the frame; cropping
+  /// the margin puts those edges exactly on the widget border, where they disappear.
+  final double inset;
+  TehsilView(this.width, this.height, this.city, this.areas, {this.inset = 0});
+
+  double get shownWidth => width - 2 * inset;
+  double get shownHeight => height - 2 * inset;
+
+  /// True when [path] runs along the cropped frame (a cut edge, not a real border).
+  bool touchesFrame(Path path) {
+    if (inset == 0) return false;
+    final b = path.getBounds();
+    const e = 0.5;
+    return b.left <= inset + e || b.top <= inset + e || b.right >= width - inset - e || b.bottom >= height - inset - e;
+  }
 
   factory TehsilView.fromJson(Map<String, dynamic> j) {
     final city = j['city'] as List;
-    return TehsilView(
-      (j['W'] as num).toDouble(),
-      (j['H'] as num).toDouble(),
-      Offset((city[0] as num).toDouble(), (city[1] as num).toDouble()),
-      [
+    final w = (j['W'] as num).toDouble(), h = (j['H'] as num).toDouble();
+    final pad = ((j['proj'] as Map?)?['pad'] as num?)?.toDouble() ?? 0;
+    final areas = [
         for (final a in j['areas'])
           TehsilShape(
             a['name'],
@@ -37,8 +51,15 @@ class TehsilView {
             a['label'] == true,
             a['approx'] == true,
           ),
-      ],
-    );
+    ];
+    // Clipped view: the shapes together fill the whole padded frame.
+    var bounds = areas.first.path.getBounds();
+    for (final a in areas.skip(1)) {
+      bounds = bounds.expandToInclude(a.path.getBounds());
+    }
+    const e = 0.5;
+    final clipped = pad > 0 && bounds.left <= pad + e && bounds.top <= pad + e && bounds.right >= w - pad - e && bounds.bottom >= h - pad - e;
+    return TehsilView(w, h, Offset((city[0] as num).toDouble(), (city[1] as num).toDouble()), areas, inset: clipped ? pad : 0);
   }
 
   /// Parses "M x y L x y … Z" (the only commands in the file).
@@ -124,14 +145,14 @@ class TehsilMap extends StatelessWidget {
     final c = context.rr;
     final dark = Theme.of(context).brightness == Brightness.dark;
     return AspectRatio(
-      aspectRatio: view.width / view.height,
+      aspectRatio: view.shownWidth / view.shownHeight,
       child: LayoutBuilder(builder: (context, box) {
-        final scale = box.maxWidth / view.width;
+        final scale = box.maxWidth / view.shownWidth;
         return Semantics(
           label: semanticLabel,
           child: GestureDetector(
             onTapUp: (d) {
-              final p = d.localPosition / scale;
+              final p = d.localPosition / scale + Offset(view.inset, view.inset);
               // Check the smallest shapes first so tiny tehsils stay tappable.
               for (final a in view.areas.reversed) {
                 if (a.path.contains(p)) {
@@ -155,7 +176,7 @@ class TehsilMap extends StatelessWidget {
   Widget _chip(BuildContext context, TehsilShape a, double scale) {
     final c = context.rr;
     final sel = a.name == selected;
-    final pos = a.labelAt * scale;
+    final pos = (a.labelAt - Offset(view.inset, view.inset)) * scale;
     return Positioned(
       left: pos.dx,
       top: pos.dy,
@@ -168,12 +189,16 @@ class TehsilMap extends StatelessWidget {
             label: '${label(a.name)}: ${counts[a.name] ?? 0}',
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(color: sel ? c.textPrimary : c.surface, borderRadius: BorderRadius.circular(7)),
+              decoration: BoxDecoration(
+                color: sel ? c.primaryContainer : c.surface.withValues(alpha: selected != null ? 0.8 : 1),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(color: sel ? c.primaryBorder : Colors.transparent),
+              ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
                 Text(label(a.name) + (a.approximate ? '*' : ''),
-                    style: TextStyle(fontSize: 13, height: 15 / 13, fontWeight: FontWeight.w600, color: sel ? c.surface : c.textPrimary)),
+                    style: TextStyle(fontSize: 13, height: 15 / 13, fontWeight: FontWeight.w600, color: sel ? c.onPrimaryContainer : c.textPrimary)),
                 Text('${counts[a.name] ?? 0}', style: TextStyle(fontSize: 18, height: 20 / 18, fontWeight: FontWeight.w600,
-                    fontFeatures: const [FontFeature.tabularFigures()], color: sel ? c.surface : c.textPrimary)),
+                    fontFeatures: const [FontFeature.tabularFigures()], color: sel ? c.onPrimaryContainer : c.textPrimary)),
               ]),
             ),
           ),
@@ -195,21 +220,25 @@ class _MapPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.scale(scale);
+    canvas.translate(-view.inset, -view.inset);
     final border = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5 / scale // constant on-screen width in both views
+      ..strokeWidth = 1.5 / scale // constant on-screen width in both views
       ..strokeJoin = StrokeJoin.round
-      ..color = c.surfaceAlt;
+      ..color = c.surface;
     for (final a in view.areas) {
-      canvas.drawPath(a.path, Paint()..color = bandFor(counts[a.name] ?? 0, dark).$2);
+      final fill = bandFor(counts[a.name] ?? 0, dark).$2;
+      // With a tehsil selected, the others fade back so it stands out without heavy lines.
+      final faded = selected != null && a.name != selected;
+      canvas.drawPath(a.path, Paint()..color = faded ? Color.lerp(fill, c.surfaceAlt, 0.6)! : fill);
       canvas.drawPath(a.path, border);
     }
-    for (final a in view.areas.where((a) => a.name == selected)) {
+    for (final a in view.areas.where((a) => a.name == selected && !view.touchesFrame(a.path))) {
       canvas.drawPath(a.path, Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5 / scale
+        ..strokeWidth = 1.5 / scale
         ..strokeJoin = StrokeJoin.round
-        ..color = c.textPrimary);
+        ..color = c.primary);
     }
     // City marker
     final r = 5 / scale;

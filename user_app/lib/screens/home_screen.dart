@@ -205,6 +205,23 @@ class _HomeTabState extends State<_HomeTab> {
         subtitle: s.city,
         leading: const RRLogoSlot(size: 32, showText: false),
         actions: [
+          // Shows the language it switches to ("हिंदी" / "English"), like the login screen.
+          Semantics(
+            button: true,
+            label: s.langBtn,
+            child: TextButton(
+              onPressed: context.read<LocaleProvider>().toggle,
+              style: TextButton.styleFrom(
+                minimumSize: const Size(44, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                foregroundColor: c.primary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999), side: BorderSide(color: c.borderStrong)),
+                visualDensity: VisualDensity.compact,
+              ),
+              child: Text(s.langBtn, style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+          const SizedBox(width: 4),
           RRIconButton(icon: LucideIcons.chartColumn, label: s.cityStats, onPressed: () => openStats(context)),
           RRIconButton(
             icon: theme.isDark(context) ? LucideIcons.sun : LucideIcons.moon,
