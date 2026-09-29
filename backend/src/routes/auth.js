@@ -42,8 +42,11 @@ function hashResetToken(token) {
 async function findUserByIdentifier(identifier) {
   const trimmed = String(identifier).trim();
   const phone = normalizePhone(trimmed);
+  // Also match numbers saved before phone numbers were normalised (with a +91 / 91 prefix).
+  const variants = phone && /^\d{10}$/.test(phone) ? [phone, `+91${phone}`, `91${phone}`] : [phone];
   const byPhone = await prisma.user.findFirst({
-    where: { phoneNumber: { in: [trimmed, phone].filter(Boolean) } },
+    where: { phoneNumber: { in: [trimmed, ...variants].filter(Boolean) } },
+    orderBy: { id: "asc" },
   });
   if (byPhone) return byPhone;
   return prisma.user.findFirst({
