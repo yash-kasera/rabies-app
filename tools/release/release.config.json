@@ -1,6 +1,6 @@
 {
   "siteUrl": "https://rabies-jabalpur.rabies.workers.dev",
-  "apiBaseUrl": "https://FILL-IN.onrender.com",
+  "apiBaseUrl": "https://rabies-api.onrender.com",
   "pagesProject": "rabies-jabalpur",
   "govPagesProject": "rabies-jabalpur-gov",
   "hospitalPagesProject": "rabies-jabalpur-hospital",
