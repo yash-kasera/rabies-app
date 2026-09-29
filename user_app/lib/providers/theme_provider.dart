@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Follows the phone's setting until the user picks Light or Dark.
 class ThemeProvider extends ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
 
@@ -10,35 +11,24 @@ class ThemeProvider extends ChangeNotifier {
     _loadTheme();
   }
 
+  bool isDark(BuildContext context) => _themeMode == ThemeMode.dark ||
+      (_themeMode == ThemeMode.system && MediaQuery.platformBrightnessOf(context) == Brightness.dark);
+
   Future<void> _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('theme_mode');
-    if (saved == 'light') {
-      _themeMode = ThemeMode.light;
-    } else if (saved == 'dark') {
-      _themeMode = ThemeMode.dark;
-    } else {
-      _themeMode = ThemeMode.system;
-    }
+    _themeMode = switch (saved) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
     notifyListeners();
   }
 
-  Future<void> toggleTheme() async {
-    final prefs = await SharedPreferences.getInstance();
-    switch (_themeMode) {
-      case ThemeMode.light:
-        _themeMode = ThemeMode.dark;
-        await prefs.setString('theme_mode', 'dark');
-        break;
-      case ThemeMode.dark:
-        _themeMode = ThemeMode.system;
-        await prefs.setString('theme_mode', 'system');
-        break;
-      case ThemeMode.system:
-        _themeMode = ThemeMode.light;
-        await prefs.setString('theme_mode', 'light');
-        break;
-    }
+  Future<void> toggleTheme(BuildContext context) async {
+    _themeMode = isDark(context) ? ThemeMode.light : ThemeMode.dark;
     notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('theme_mode', _themeMode == ThemeMode.dark ? 'dark' : 'light');
   }
 }

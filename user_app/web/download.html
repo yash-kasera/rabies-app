@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1E4D5A">
+  <title>Download Rabies Response</title>
+  <style>
+    body { margin: 0; font: 16px/1.5 system-ui, sans-serif; background: #F6F8F8; color: #14252A; }
+    main { max-width: 480px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .card { background: #fff; border: 1px solid #D5DEE0; border-radius: 16px; padding: 16px; margin: 16px 0; }
+    a.btn { display: block; text-align: center; padding: 14px; border-radius: 999px; background: #1E4D5A; color: #fff; font-weight: 600; text-decoration: none; }
+    a.alt { color: #1E4D5A; font-weight: 600; }
+    ol { padding-left: 20px; margin: 8px 0 0; } small { color: #4A5B60; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Rabies Response · Jabalpur</h1>
+  <p>Report an animal bite and find the nearest hospital for anti-rabies treatment.<br>
+    <small>जानवर के काटने की शिकायत करें और नज़दीकी अस्पताल खोजें।</small></p>
+  <div class="card">
+    <a class="btn" id="apk" href="downloads/rabies-response.apk" download>Download Android app (APK)</a>
+    <p style="margin:8px 0 0"><small id="ver"></small></p>
+    <ol>
+      <li>Open the downloaded file. <small>डाउनलोड हुई फ़ाइल खोलें।</small></li>
+      <li>If asked, allow installing from this source. <small>पूछे तो इस स्रोत से इंस्टॉल की अनुमति दें।</small></li>
+      <li>Tap Install. Later updates come inside the app. <small>"इंस्टॉल" दबाएं। आगे के अपडेट ऐप में ही आएंगे।</small></li>
+    </ol>
+  </div>
+  <p><a class="alt" href="./">Or use it in the browser →</a> <small>(no install needed)</small></p>
+  <p><small>Emergency ambulance: <a class="alt" href="tel:108">108</a></small></p>
+</main>
+<script>
+  fetch('config.json', { cache: 'no-cache' }).then(r => r.json()).then(c => {
+    if (c.android && c.android.versionName) document.getElementById('ver').textContent = 'Version ' + c.android.versionName;
+  }).catch(() => {});
+</script>
+</body>
+</html>

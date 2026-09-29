@@ -1,59 +1,64 @@
 require("dotenv/config");
-const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
 const readline = require("readline");
+const prisma = require("./prisma");
+const { MIN_PASSWORD_LENGTH, isValidEmail, isValidPassword } = require("./validation");
 
-const prisma = new PrismaClient();
+// Usage: node src/utils/seed.js
+// Non-interactive: ADMIN_EMAIL=... ADMIN_PASSWORD=... node src/utils/seed.js
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+function ask(rl, question) {
+  return new Promise((resolve) => rl.question(question, resolve));
+}
+
+async function fail(message) {
+  console.error(message);
+  await prisma.$disconnect();
+  process.exit(1);
+}
 
 async function seed() {
   console.log("=== Seed: Create First Government Admin ===\n");
 
-  const email = await new Promise((resolve) =>
-    rl.question("Admin email: ", resolve)
-  );
-  const password = await new Promise((resolve) =>
-    rl.question("Admin password (min 8 chars): ", resolve)
-  );
-
-  if (password.length < 8) {
-    console.error("Password must be at least 8 characters.");
-    await prisma.$disconnect();
-    process.exit(1);
+  let email = process.env.ADMIN_EMAIL;
+  let password = process.env.ADMIN_PASSWORD;
+  if (!email || !password) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    email = email || await ask(rl, "Admin email: ");
+    password = password || await ask(rl, `Admin password (min ${MIN_PASSWORD_LENGTH} chars): `);
+    rl.close();
   }
+  email = email.trim().toLowerCase();
 
-  const existing = await prisma.user.findUnique({ where: { phoneNumber: email } });
-  if (existing) {
-    console.error("A user with that email/phone already exists.");
-    await prisma.$disconnect();
-    process.exit(1);
-  }
+  if (!isValidEmail(email)) await fail("Enter a valid email address.");
+  if (!isValidPassword(password)) await fail(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
 
-  const passwordHash = await bcrypt.hash(password, 10);
+  const city = await prisma.city.findFirst({ orderBy: { id: "asc" } });
+  if (!city) await fail("No cities found. Run `npx prisma db seed` first to load cities and content.");
+
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ phoneNumber: email }, { email: { equals: email, mode: "insensitive" } }] },
+  });
+  if (existing) await fail("A user with that email/phone already exists.");
 
   const admin = await prisma.user.create({
     data: {
       fullName: "Super Admin",
       phoneNumber: email,
       email,
-      passwordHash,
+      passwordHash: await bcrypt.hash(password, 10),
       role: "government",
-      cityId: 1,
+      cityId: city.id,
       phoneVerified: true,
     },
   });
 
   console.log(`\nGovernment admin created: ${admin.email} (ID: ${admin.id})`);
   await prisma.$disconnect();
-  rl.close();
 }
 
-seed().catch((e) => {
+seed().catch(async (e) => {
   console.error(e);
-  prisma.$disconnect();
+  await prisma.$disconnect();
   process.exit(1);
 });

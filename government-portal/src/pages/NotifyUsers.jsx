@@ -1,123 +1,139 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Send, MapPin, Users, Siren, Megaphone, Info, Bell, RefreshCw } from 'lucide-react'
 import api from '../services/api'
+import useCities from '../hooks/useCities'
+import { Badge, Button, Dialog, Field, Notice, Segmented, Select, Skeleton, useToast, fmtDateTime, statusLabel, NOTICE_CATEGORIES } from '../components/ui'
+
+const TITLE_MAX = 60
+const BODY_MAX = 240
+const Count = ({ n, max }) => <span className="rr-hint rr-tabular" style={{ alignSelf: 'flex-end', color: n > max ? 'var(--color-danger)' : undefined }}>{n} / {max}</span>
 
 export default function NotifyUsers() {
-  const [notifications, setNotifications] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ title: '', body: '', category: 'GeneralAwareness', targetType: 'all', targetCityId: '' })
+  const toast = useToast()
+  const cities = useCities()
+  const city = cities[0]
+  const [category, setCategory] = useState('GeneralAwareness')
+  const [target, setTarget] = useState('city')
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
+  const [audience, setAudience] = useState(null)
+  const [history, setHistory] = useState(null)
+  const [historyError, setHistoryError] = useState(false)
+  const [review, setReview] = useState(false)
   const [sending, setSending] = useState(false)
-  const [confirm, setConfirm] = useState(false)
 
-  const loadNotifications = useCallback(async () => {
-    try {
-      const res = await api.get('/government/notifications')
-      setNotifications(res.data)
-    } catch {} finally { setLoading(false) }
+  const loadHistory = useCallback(() => {
+    setHistoryError(false)
+    api.get('/government/notifications').then(res => setHistory(res.data)).catch(() => setHistoryError(true))
   }, [])
+  useEffect(() => { loadHistory() }, [loadHistory])
+  useEffect(() => {
+    if (!city) return
+    api.get('/government/audience', { params: { cityId: city.id } }).then(res => setAudience(res.data)).catch(() => {})
+  }, [city])
 
-  useEffect(() => { loadNotifications() }, [loadNotifications])
+  const outbreak = category === 'OutbreakAlert'
+  const targetName = target === 'city' ? `${city?.name || 'Jabalpur'} users` : 'all users'
+  const reachN = audience ? (target === 'city' ? audience.city : audience.all) : null
+  const reach = reachN == null ? 'Everyone in this group who opens the app' : `About ${reachN.toLocaleString('en-IN')} app user${reachN === 1 ? '' : 's'}`
+  const valid = title.trim() && body.trim() && title.length <= TITLE_MAX && body.length <= BODY_MAX && (target === 'all' || city)
 
-  const handleSend = async () => {
+  const send = async () => {
     setSending(true)
     try {
-      await api.post('/government/notifications', form)
-      setForm({ title: '', body: '', category: 'GeneralAwareness', targetType: 'all', targetCityId: '' })
-      setConfirm(false)
-      loadNotifications()
+      await api.post('/government/notifications', {
+        title: title.trim(), body: body.trim(), category, targetType: target,
+        ...(target === 'city' ? { targetCityId: city.id } : {}),
+      })
+      setReview(false)
+      setTitle(''); setBody('')
+      toast(`Notification sent to ${targetName}.`)
+      loadHistory()
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to send')
-    } finally { setSending(false) }
+      setReview(false)
+      toast(err.response?.data?.error || 'The notification was not sent.', { error: true, action: { label: 'Try again', onClick: () => setReview(true) } })
+    } finally {
+      setSending(false)
+    }
   }
-
-  const categoryColors = {
-    OutbreakAlert: 'bg-emergency/20 text-emergency dark:text-emergency-dark',
-    GeneralAwareness: 'bg-primary/20 text-primary dark:text-primary-dark',
-    NewHospital: 'bg-success/20 text-success dark:text-success-dark',
-    MaintenanceNotice: 'bg-warning/20 text-warning dark:text-warning-dark',
-  }
-
-  const targetOptions = [
-    { value: 'all', label: 'All Users' },
-    { value: 'city', label: 'Specific City' },
-  ]
 
   return (
-    <div className="max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-text-primary dark:text-text-primary-dark mb-6">Notify Users</h1>
-
-      <div className="card p-6 mb-6 space-y-4">
-        <h2 className="text-lg font-semibold text-text-primary dark:text-text-primary-dark">Send Notification</h2>
-        <input type="text" placeholder="Title *" className="input-field" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
-        <textarea placeholder="Message body *" className="input-field h-24" value={form.body} onChange={e => setForm(f => ({ ...f, body: e.target.value }))} />
-        <div className="flex gap-3">
-          <select className="input-field" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
-            <option value="GeneralAwareness">General Awareness</option>
-            <option value="OutbreakAlert">Outbreak Alert</option>
-            <option value="NewHospital">New Hospital</option>
-            <option value="MaintenanceNotice">Maintenance Notice</option>
-          </select>
-        </div>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16, alignItems: 'start' }}>
+      <section className="rr-card rr-card--pad-lg" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label className="text-xs text-text-secondary dark:text-text-secondary-dark block mb-2">Target Audience</label>
-          <div className="flex rounded-xl border border-border dark:border-border-dark overflow-hidden">
-            {targetOptions.map(o => (
-              <button key={o.value} type="button"
-                className={`flex-1 py-2 text-sm font-medium transition ${
-                  form.targetType === o.value
-                    ? 'bg-primary text-white'
-                    : 'bg-surface dark:bg-surface-dark text-text-secondary dark:text-text-secondary-dark hover:bg-surface-alt dark:hover:bg-surface-alt-dark'
-                }`}
-                onClick={() => setForm(f => ({ ...f, targetType: o.value }))}>
-                {o.label}
-              </button>
-            ))}
-          </div>
+          <h1 style={{ margin: 0, fontSize: 20, lineHeight: '28px', fontWeight: 600 }}>Send a notification</h1>
+          <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>Appears in the citizen app's Alerts tab the next time people open it.</p>
         </div>
-        {form.targetType === 'city' && (
-          <input type="number" placeholder="City ID" className="input-field" value={form.targetCityId} onChange={e => setForm(f => ({ ...f, targetCityId: e.target.value }))} />
+        <Field label="Category" htmlFor="n-cat">
+          <Select id="n-cat" value={category} onChange={e => setCategory(e.target.value)}>
+            {NOTICE_CATEGORIES.map(c => <option key={c} value={c}>{statusLabel('notice', c)}</option>)}
+          </Select>
+        </Field>
+        <div className="rr-field">
+          <span className="rr-label">Send to</span>
+          <Segmented label="Send to" value={target} onChange={setTarget}
+            options={[{ value: 'city', label: `${city?.name || 'Jabalpur'} only`, icon: MapPin }, { value: 'all', label: 'All users', icon: Users }]} />
+          <span className="rr-hint">{reach} {target === 'city' ? `registered in ${city?.name || 'Jabalpur'}.` : 'across every city.'}</span>
+        </div>
+        <Field label="Title" htmlFor="n-title" count={<Count n={title.length} max={TITLE_MAX} />}>
+          <input id="n-title" className="rr-input" maxLength={TITLE_MAX} value={title} onChange={e => setTitle(e.target.value)} />
+        </Field>
+        <Field label="Message" htmlFor="n-body" count={<Count n={body.length} max={BODY_MAX} />}>
+          <textarea id="n-body" className="rr-input" rows={4} maxLength={BODY_MAX} value={body} onChange={e => setBody(e.target.value)} style={{ resize: 'vertical', minHeight: 96 }} />
+        </Field>
+        {outbreak && (
+          <Notice tone="warning" icon={Siren} title="Outbreak alerts are shown at the top of the Alerts tab.">
+            There is no SMS or push delivery yet — people see it only when they open the app. Phone the ward offices for anything urgent.
+          </Notice>
         )}
-        {!confirm ? (
-          <button onClick={() => { if (form.title && form.body) setConfirm(true) }} className="btn-primary w-full">Review & Send</button>
-        ) : (
-          <div className="bg-warning/10 border border-warning/30 rounded-lg p-4 space-y-3">
-            <p className="text-sm font-bold text-warning dark:text-warning-dark">⚠ Confirm sending to all {form.targetType === 'all' ? 'users' : `users in city ${form.targetCityId}`}</p>
-            <p className="text-xs text-text-secondary">{form.title}: {form.body.slice(0, 100)}</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirm(false)} className="flex-1 px-4 py-2 rounded-xl border border-border text-text-secondary">Cancel</button>
-              <button onClick={handleSend} disabled={sending} className="btn-primary flex-1">{sending ? 'Sending...' : 'Confirm Send'}</button>
-            </div>
+        <Button kind={outbreak ? 'emergency' : 'primary'} icon={Send} disabled={!valid} onClick={() => setReview(true)} style={{ alignSelf: 'flex-start' }}>Review and send</Button>
+      </section>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <section className="rr-card" aria-label="Preview">
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><Bell size={14} aria-hidden />Preview in the citizen app</div>
+          <div style={{ maxWidth: 340, padding: 12, borderRadius: 16, border: `${outbreak ? 2 : 1}px solid ${outbreak ? 'var(--color-emergency)' : 'var(--color-border)'}`, background: 'var(--color-surface)' }}>
+            <Badge kind="notice" value={category} />
+            <div style={{ marginTop: 6, fontWeight: 600, wordBreak: 'break-word' }}>{title || <span style={{ color: 'var(--color-text-secondary)' }}>Title</span>}</div>
+            <div style={{ marginTop: 2, fontSize: 14, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{body || <span style={{ color: 'var(--color-text-secondary)' }}>Your message appears here.</span>}</div>
+            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--color-text-secondary)' }}>Just now</div>
           </div>
-        )}
+        </section>
+
+        <section className="rr-card">
+          <h2 style={{ margin: '0 0 8px', fontSize: 16, lineHeight: '24px', fontWeight: 600 }}>Sent</h2>
+          {historyError && <Notice title="Could not load sent notifications." action={<Button kind="secondary" size="sm" icon={RefreshCw} onClick={loadHistory}>Retry</Button>} />}
+          {!history && !historyError && <div className="rr-skel-stack"><Skeleton /><Skeleton w="70%" /><Skeleton w="50%" /></div>}
+          {history?.length === 0 && <p style={{ margin: 0, color: 'var(--color-text-secondary)', display: 'flex', gap: 6, alignItems: 'center' }}><Megaphone size={16} aria-hidden />No notifications sent yet.</p>}
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 520, overflowY: 'auto' }}>
+            {history?.map(n => (
+              <li key={n.id} style={{ padding: '10px 0', borderTop: '1px solid var(--color-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Badge kind="notice" value={n.category} />
+                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{fmtDateTime(n.sentAt)} · to {n.targetType === 'city' ? `${n.city?.name} users` : n.targetType === 'all' ? 'all users' : 'nearby users'}</span>
+                </div>
+                <div style={{ marginTop: 4, fontWeight: 600 }}>{n.title}</div>
+                <div style={{ fontSize: 14, color: 'var(--color-text-secondary)' }}>{n.body}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
 
-      <div>
-        <h2 className="text-lg font-semibold text-text-primary dark:text-text-primary-dark mb-4">Notification History</h2>
-        {loading ? (
-          <div className="flex justify-center py-8"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
-        ) : notifications.length === 0 ? (
-          <div className="card p-8 text-center text-text-secondary">No notifications sent yet</div>
-        ) : (
-          <div className="space-y-3">
-            {notifications.map(n => (
-              <div key={n.id} className="card p-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${categoryColors[n.category] || ''}`}>
-                    {n.category.replace(/([A-Z])/g, ' $1').trim()}
-                  </span>
-                  <span className="text-xs text-text-secondary dark:text-text-secondary-dark">
-                    {new Date(n.sentAt).toLocaleString()}
-                  </span>
-                  <span className="text-xs text-text-secondary dark:text-text-secondary-dark ml-auto">
-                    Target: {n.targetType}
-                  </span>
-                </div>
-                <p className="font-semibold text-text-primary dark:text-text-primary-dark">{n.title}</p>
-                <p className="text-sm text-text-secondary dark:text-text-secondary-dark">{n.body}</p>
-              </div>
-            ))}
+      {review && (
+        <Dialog icon={outbreak ? Siren : Info} tone={outbreak ? 'emergency' : undefined} alert title={`Send to ${targetName}?`} onClose={() => setReview(false)}
+          actions={<>
+            <Button kind="text" onClick={() => setReview(false)}>Edit</Button>
+            <Button kind={outbreak ? 'emergency' : 'primary'} icon={Send} disabled={sending} onClick={send}>{sending ? 'Sending…' : 'Send now'}</Button>
+          </>}>
+          <p style={{ margin: '0 0 10px' }}>{reach}. Sent notifications cannot be recalled.</p>
+          <div style={{ padding: 10, borderRadius: 12, background: 'var(--color-surface-alt)' }}>
+            <Badge kind="notice" value={category} />
+            <div style={{ marginTop: 4, fontWeight: 600 }}>{title}</div>
+            <div style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{body}</div>
           </div>
-        )}
-      </div>
+        </Dialog>
+      )}
     </div>
   )
 }

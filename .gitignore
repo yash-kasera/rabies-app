@@ -1,0 +1,30 @@
+# Personal Claude Code settings (permissions allowlist)
+.claude/settings.local.json
+
+# Release APKs and build output
+dist/
+
+# Dependencies and build output (never commit)
+node_modules/
+government-portal/dist/
+hospital-portal/dist/
+user_app/build/
+user_app/test_screens/shots/
+**/ephemeral/
+
+# Secrets: release signing key, production env
+*.jks
+key.properties
+.env
+.env.*
+!.env.example
+*.local
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+
+# Stray Workers config (points at portal *source*); deploy configs live in tools/release/cf/
+/wrangler.jsonc
+.wrangler/

@@ -12,25 +12,27 @@ const navItems = [
 ]
 
 export default function Layout() {
-  const { logout, user, hospitalName } = useAuth()
+  const { logout, user, token, hospitalName } = useAuth()
   const { dark, toggle } = useTheme()
   const navigate = useNavigate()
   const [newCount, setNewCount] = useState(0)
   const [showToast, setShowToast] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
 
+  // The layout owns the socket connection for the whole session; pages only subscribe.
   useEffect(() => {
-    if (user?.hospitalId) {
-      connectHospital(user.hospitalId)
-      const cleanup = onNewReport((report) => {
-        setNewCount(c => c + 1)
-        setToastMsg(`New report: ${report.victimName}`)
-        setShowToast(true)
-        setTimeout(() => setShowToast(false), 4000)
-      })
-      return () => { cleanup(); disconnect() }
-    }
-  }, [user])
+    if (!token) return
+    connectHospital(token)
+    let toastTimer
+    const cleanup = onNewReport((report) => {
+      setNewCount(c => c + 1)
+      setToastMsg(`New report: ${report.victimName}`)
+      setShowToast(true)
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => setShowToast(false), 4000)
+    })
+    return () => { cleanup(); clearTimeout(toastTimer); disconnect() }
+  }, [token])
 
   return (
     <div className="flex h-screen relative">

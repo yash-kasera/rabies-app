@@ -7,26 +7,30 @@ import MyCases from './pages/MyCases'
 import RegisterBite from './pages/RegisterBite'
 import ChangePassword from './pages/ChangePassword'
 
+const Spinner = () => <div className="flex items-center justify-center h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+  if (loading) return <Spinner />
   if (!user || user.role !== 'hospital') return <Navigate to="/login" replace />
+  if (user.mustChangePassword) return <Navigate to="/change-password" replace />
   return children
 }
 
 export default function App() {
   const { user, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+  if (loading) return <Spinner />
   return (
     <Routes>
       <Route path="/login" element={user?.role === 'hospital' ? <Navigate to="/" replace /> : <Login />} />
-      <Route path="/change-password" element={<ChangePassword />} />
+      <Route path="/change-password" element={user ? <ChangePassword /> : <Navigate to="/login" replace />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={<Navigate to="/incoming" replace />} />
         <Route path="incoming" element={<IncomingReports />} />
         <Route path="cases" element={<MyCases />} />
         <Route path="register" element={<RegisterBite />} />
       </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

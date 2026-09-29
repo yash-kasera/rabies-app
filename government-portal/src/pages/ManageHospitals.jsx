@@ -1,187 +1,197 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, Hospital, Pencil, ClipboardList, KeyRound, PowerOff, RefreshCw } from 'lucide-react'
 import api from '../services/api'
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet'
-import L from 'leaflet'
+import useCities from '../hooks/useCities'
+import { PinPicker } from '../components/TehsilMap'
+import CredentialsDialog from '../components/CredentialsDialog'
+import { Badge, Button, Dialog, Field, Notice, Skeleton, StateView, useToast, fmtPhone } from '../components/ui'
 
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
-})
+const EMPTY = { name: '', address: '', contactNumber: '', staffEmail: '', latitude: null, longitude: null }
 
-function LocationPicker({ lat, lng, onChange }) {
-  useMapEvents({
-    click(e) { onChange(e.latlng.lat, e.latlng.lng) },
-  })
-  return lat && lng ? <Marker position={[lat, lng]} /> : null
+function HospitalForm({ editing, cityId, onClose, onSaved }) {
+  const [form, setForm] = useState(editing
+    ? { name: editing.name, address: editing.address, contactNumber: editing.contactNumber, staffEmail: editing.accounts?.[0]?.email || '', latitude: editing.latitude, longitude: editing.longitude }
+    : EMPTY)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (form.latitude == null) return setError('Click the map to place the hospital.')
+    setSaving(true)
+    try {
+      const body = { name: form.name, address: form.address, contactNumber: form.contactNumber, latitude: form.latitude, longitude: form.longitude }
+      if (editing) {
+        await api.patch(`/government/hospitals/${editing.id}`, body)
+        onSaved(null, `${form.name} updated.`)
+      } else {
+        const res = await api.post('/government/hospitals', { ...body, cityId, staffEmail: form.staffEmail || undefined })
+        onSaved(res.data.staffAccount, `${form.name} added.`)
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not save the hospital.')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog icon={Hospital} title={editing ? `Edit ${editing.name}` : 'Add hospital'} onClose={onClose} maxWidth={680}>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {error && <Notice>{error}</Notice>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+          <Field label="Hospital name" htmlFor="h-name"><input id="h-name" className="rr-input" required value={form.name} onChange={set('name')} /></Field>
+          <Field label="Contact number" htmlFor="h-phone"><input id="h-phone" className="rr-input" type="tel" inputMode="tel" required value={form.contactNumber} onChange={set('contactNumber')} /></Field>
+        </div>
+        <Field label="Address" htmlFor="h-addr"><input id="h-addr" className="rr-input" required value={form.address} onChange={set('address')} /></Field>
+        <Field label="Login email" htmlFor="h-login" hint={editing ? 'The login email cannot be changed here.' : 'Hospital staff log in to the Hospital Portal with this. Leave blank to generate one.'}>
+          <input id="h-login" className="rr-input" type="email" value={form.staffEmail} onChange={set('staffEmail')} readOnly={!!editing} />
+        </Field>
+        <div className="rr-field">
+          <span className="rr-label">Location</span>
+          <PinPicker lat={form.latitude} lng={form.longitude} onPick={(latitude, longitude) => setForm(f => ({ ...f, latitude, longitude }))} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <input aria-label="Latitude" className="rr-input rr-tabular" readOnly value={form.latitude ?? ''} placeholder="Latitude" />
+            <input aria-label="Longitude" className="rr-input rr-tabular" readOnly value={form.longitude ?? ''} placeholder="Longitude" />
+          </div>
+          <span className="rr-hint">{form.latitude == null ? 'Click the map to place the hospital.' : 'Click again to move the pin.'}</span>
+        </div>
+        <div className="rr-dialog__actions" style={{ padding: 0 }}>
+          <Button kind="text" onClick={onClose}>Cancel</Button>
+          <button type="submit" className="rr-btn rr-btn--primary" disabled={saving}><span className="rr-btn__label">{saving ? 'Saving…' : editing ? 'Save changes' : 'Create hospital'}</span></button>
+        </div>
+      </form>
+    </Dialog>
+  )
 }
 
 export default function ManageHospitals() {
-  const [hospitals, setHospitals] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', cityId: 1, address: '', latitude: 22.7196, longitude: 75.8577, contactNumber: '', contactEmail: '', staffEmail: '', staffPassword: '' })
-  const [saving, setSaving] = useState(false)
-  const [newCredentials, setNewCredentials] = useState(null)
+  const navigate = useNavigate()
+  const toast = useToast()
+  const cities = useCities()
+  const [hospitals, setHospitals] = useState(null)
+  const [error, setError] = useState(false)
+  const [form, setForm] = useState(null) // { editing } | null
+  const [creds, setCreds] = useState(null)
+  const [deactivate, setDeactivate] = useState(null)
+  const [busy, setBusy] = useState(false)
 
-  const loadHospitals = useCallback(async () => {
-    try {
-      const res = await api.get('/government/hospitals')
-      setHospitals(res.data)
-    } catch {} finally { setLoading(false) }
+  const load = useCallback(() => {
+    setError(false)
+    api.get('/government/hospitals').then(res => setHospitals(res.data)).catch(() => setError(true))
   }, [])
+  useEffect(() => { load() }, [load])
 
-  useEffect(() => { loadHospitals() }, [loadHospitals])
-
-  const openAdd = () => {
-    setEditing(null)
-    setForm({ name: '', cityId: 1, address: '', latitude: 22.7196, longitude: 75.8577, contactNumber: '', contactEmail: '', staffEmail: '', staffPassword: '' })
-    setNewCredentials(null)
-    setShowModal(true)
-  }
-
-  const openEdit = (h) => {
-    setEditing(h)
-    setForm({ name: h.name, cityId: h.cityId, address: h.address, latitude: h.latitude, longitude: h.longitude, contactNumber: h.contactNumber, contactEmail: h.contactEmail || '' })
-    setNewCredentials(null)
-    setShowModal(true)
-  }
-
-  const handleGeocode = async () => {
-    if (!form.address) return
+  const setStatus = async (h, status) => {
+    setBusy(true)
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(form.address)}`)
-      const data = await res.json()
-      if (data.length > 0) {
-        setForm(f => ({ ...f, latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) }))
-      }
-    } catch {}
-  }
-
-  const handleSave = async (e) => {
-    e.preventDefault()
-    setSaving(true)
-    try {
-      if (editing) {
-        await api.patch(`/government/hospitals/${editing.id}`, form)
-        setShowModal(false)
-        loadHospitals()
-      } else {
-        const res = await api.post('/government/hospitals', form)
-        setNewCredentials(res.data.staffAccount)
-        loadHospitals()
-      }
+      await api.patch(`/government/hospitals/${h.id}`, { status })
+      toast(status === 'Active' ? `${h.name} is active and will receive bite reports.` : `${h.name} deactivated.`)
+      setDeactivate(null)
+      load()
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to save')
-    } finally { setSaving(false) }
+      toast(err.response?.data?.error || 'Could not change the status.', { error: true })
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const toggleStatus = async (h) => {
-    const newStatus = h.status === 'Active' ? 'Inactive' : 'Active'
-    await api.patch(`/government/hospitals/${h.id}`, { status: newStatus })
-    loadHospitals()
+  const resetPassword = async (h) => {
+    try {
+      const res = await api.post(`/government/hospitals/${h.id}/reset-staff-password`)
+      setCreds({ title: 'Password reset', intro: `New temporary password for ${h.name}.`, login: res.data.staffAccount.email, password: res.data.staffAccount.tempPassword })
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not reset the password.', { error: true })
+    }
   }
 
-  if (loading) return <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+  const active = hospitals?.filter(h => h.status === 'Active').length ?? 0
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-text-primary dark:text-text-primary-dark">Manage Hospitals</h1>
-        <button onClick={openAdd} className="btn-primary">+ Add Hospital</button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 22, lineHeight: '30px', fontWeight: 600 }}>Manage Hospitals</h1>
+          <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>
+            {hospitals ? `${hospitals.length} registered · ${active} active · receiving bite reports in Jabalpur` : 'Loading…'}
+          </p>
+        </div>
+        <Button icon={Plus} onClick={() => setForm({ editing: null })} disabled={!cities.length}>Add Hospital</Button>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-surface-alt dark:bg-surface-alt-dark text-text-secondary dark:text-text-secondary-dark">
-              <th className="text-left p-3 font-medium">Name</th>
-              <th className="text-left p-3 font-medium">City</th>
-              <th className="text-left p-3 font-medium">Contact</th>
-              <th className="text-left p-3 font-medium">Cases</th>
-              <th className="text-left p-3 font-medium">Status</th>
-              <th className="text-left p-3 font-medium">Actions</th>
-            </tr>
-          </thead>
+      {error && <Notice title="Could not load hospitals." action={<Button kind="secondary" size="sm" icon={RefreshCw} onClick={load}>Retry</Button>}>Check your connection.</Notice>}
+
+      <div className="rr-table-wrap">
+        <table className="rr-table">
+          <thead><tr><th scope="col">Name</th><th scope="col">City</th><th scope="col">Contact</th><th scope="col" className="is-num">Cases</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead>
           <tbody>
-            {hospitals.map(h => (
-              <tr key={h.id} className="border-t border-border dark:border-border-dark">
-                <td className="p-3 font-medium text-text-primary dark:text-text-primary-dark">{h.name}</td>
-                <td className="p-3 text-text-secondary dark:text-text-secondary-dark">{h.city?.name}</td>
-                <td className="p-3 text-text-secondary dark:text-text-secondary-dark">{h.contactNumber}</td>
-                <td className="p-3">{h._count?.cases || 0}</td>
-                <td className="p-3">
-                  <button onClick={() => toggleStatus(h)}
-                    className={`text-xs px-2 py-1 rounded-full font-medium border ${
-                      h.status === 'Active'
-                        ? 'bg-success/10 text-success border-success/30'
-                        : 'bg-text-secondary/10 text-text-secondary border-text-secondary/30'
-                    }`}>
-                    {h.status}
-                  </button>
-                </td>
-                <td className="p-3">
-                  <button onClick={() => openEdit(h)} className="text-primary dark:text-primary-dark text-sm hover:underline mr-3">Edit</button>
-                  <button onClick={() => window.open(`/hospital-cases/${h.id}`, '_blank')} className="text-primary dark:text-primary-dark text-sm hover:underline">View Cases</button>
-                </td>
-              </tr>
-            ))}
+            {!hospitals && !error && [1, 2, 3].map(i => <tr key={i}>{[70, 40, 50, 20, 60, 80].map((w, j) => <td key={j}><Skeleton w={`${w}%`} /></td>)}</tr>)}
+            {hospitals?.map(h => {
+              const on = h.status === 'Active'
+              return (
+                <tr key={h.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{h.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{h.accounts?.[0]?.email || 'No login account'}</div>
+                  </td>
+                  <td>{h.city?.name}{h.tehsil && h.tehsil !== h.city?.name ? <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{h.tehsil} tehsil</div> : null}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{fmtPhone(h.contactNumber)}</td>
+                  <td className="is-num">
+                    <div className="rr-tabular" style={{ fontWeight: 600 }}>{h._count?.cases ?? 0}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{h.openCases} open</div>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button type="button" role="switch" aria-checked={on} aria-label={`${h.name} receives reports`} disabled={busy}
+                        className={`rr-toggle${on ? ' is-on' : ''}`} onClick={() => (on ? setDeactivate(h) : setStatus(h, 'Active'))} />
+                      <Badge kind="hospital" value={h.status} />
+                    </div>
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                      <Button kind="text" size="sm" icon={Pencil} onClick={() => setForm({ editing: h })}>Edit</Button>
+                      <Button kind="text" size="sm" icon={ClipboardList} onClick={() => navigate(`/hospitals/${h.id}/cases`)}>View Cases</Button>
+                      <Button kind="text" size="sm" icon={KeyRound} onClick={() => resetPassword(h)}>Reset Password</Button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+            {hospitals?.length === 0 && (
+              <tr><td colSpan={6}><StateView icon={Hospital} title="No hospitals yet" body="Add the first hospital so bite reports have somewhere to go." action={<Button icon={Plus} onClick={() => setForm({ editing: null })}>Add Hospital</Button>} /></td></tr>
+            )}
           </tbody>
         </table>
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowModal(false)}>
-          <div className="w-full max-w-2xl bg-surface dark:bg-surface-dark rounded-xl p-6 m-4 max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold text-text-primary dark:text-text-primary-dark mb-4">
-              {editing ? 'Edit Hospital' : 'Add Hospital'}
-            </h2>
-            {newCredentials && (
-              <div className="bg-success/10 border border-success/30 rounded-lg p-4 mb-4">
-                <p className="text-sm font-bold text-success dark:text-success-dark mb-1">Hospital Created!</p>
-                <p className="text-xs text-text-secondary">Login credentials for hospital staff:</p>
-                <p className="text-sm mt-1"><b>Email/ID:</b> {newCredentials.email}</p>
-                <p className="text-sm"><b>Temp Password:</b> {newCredentials.tempPassword}</p>
-                <p className="text-xs text-warning mt-1">Share these securely. Hospital must change password on first login.</p>
-              </div>
-            )}
-            <form onSubmit={handleSave} className="space-y-3">
-              <input type="text" placeholder="Hospital Name *" className="input-field" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
-              <input type="text" placeholder="Address *" className="input-field" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} required />
-              <button type="button" onClick={handleGeocode} className="text-xs text-primary dark:text-primary-dark mb-1">📍 Auto-geocode from address</button>
-              <div className="flex gap-3">
-                <input type="number" step="any" placeholder="Latitude" className="input-field" value={form.latitude} onChange={e => setForm(f => ({ ...f, latitude: parseFloat(e.target.value) || 0 }))} />
-                <input type="number" step="any" placeholder="Longitude" className="input-field" value={form.longitude} onChange={e => setForm(f => ({ ...f, longitude: parseFloat(e.target.value) || 0 }))} />
-              </div>
-              <div className="h-48 rounded-lg overflow-hidden">
-                <MapContainer center={[form.latitude || 22.7196, form.longitude || 75.8577]} zoom={10} className="h-full w-full" zoomControl={true}>
-                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}{r}.png" />
-                  <LocationPicker lat={form.latitude} lng={form.longitude} onChange={(lat, lng) => setForm(f => ({ ...f, latitude: lat, longitude: lng }))} />
-                </MapContainer>
-              </div>
-              <p className="text-xs text-text-secondary">Click on the map to set the hospital location</p>
-              <input type="text" placeholder="Contact Number *" className="input-field" value={form.contactNumber} onChange={e => setForm(f => ({ ...f, contactNumber: e.target.value }))} required />
-              <input type="email" placeholder="Contact Email" className="input-field" value={form.contactEmail} onChange={e => setForm(f => ({ ...f, contactEmail: e.target.value }))} />
-              {!editing && (
-                <div className="border-t border-border dark:border-border-dark pt-3">
-                  <p className="text-xs font-medium text-text-secondary mb-2">Hospital Login Credentials</p>
-                  <div className="flex gap-3">
-                    <input type="email" placeholder="Login Email/ID (optional)" className="input-field" value={form.staffEmail} onChange={e => setForm(f => ({ ...f, staffEmail: e.target.value }))} />
-                    <input type="text" placeholder="Temp Password (optional)" className="input-field" value={form.staffPassword} onChange={e => setForm(f => ({ ...f, staffPassword: e.target.value }))} />
-                  </div>
-                  <p className="text-xs text-text-secondary mt-1">Leave blank to auto-generate</p>
-                </div>
-              )}
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-4 py-2 rounded-xl border border-border dark:border-border-dark text-text-secondary dark:text-text-secondary-dark">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : editing ? 'Update' : 'Add Hospital'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {form && (
+        <HospitalForm editing={form.editing} cityId={cities[0]?.id} onClose={() => setForm(null)}
+          onSaved={(account, message) => {
+            setForm(null)
+            load()
+            if (account) setCreds({ title: 'Hospital created', intro: 'Give these login details to the hospital staff.', login: account.email, password: account.tempPassword })
+            else toast(message)
+          }} />
       )}
+
+      {deactivate && (
+        <Dialog icon={PowerOff} tone="danger" alert title={`Deactivate ${deactivate.name}?`} onClose={() => setDeactivate(null)}
+          actions={<>
+            <Button kind="text" onClick={() => setDeactivate(null)}>Cancel</Button>
+            <Button kind="danger" disabled={busy} onClick={() => setStatus(deactivate, 'Inactive')}>Deactivate</Button>
+          </>}>
+          <p style={{ margin: 0 }}>
+            It will stop receiving new bite reports and its staff can no longer log in.{' '}
+            {deactivate.openCases > 0
+              ? <><strong style={{ fontWeight: 600 }}>{deactivate.openCases} open case{deactivate.openCases === 1 ? '' : 's'}</strong> will stay with this hospital — make sure those patients can still get their doses.</>
+              : 'It has no open cases.'}
+          </p>
+        </Dialog>
+      )}
+
+      {creds && <CredentialsDialog {...creds} onClose={() => setCreds(null)} />}
     </div>
   )
 }

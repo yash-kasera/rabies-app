@@ -5,7 +5,9 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url       = env("DATABASE_URL")
+  // Migrations need a direct (non-pooled) connection; locally it is the same URL.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -101,6 +103,8 @@ model User {
   hospital     Hospital?    @relation("HospitalAccount", fields: [hospitalId], references: [id])
   biteReports  BiteReport[]
   createdCases Case[]       @relation("CaseCreator")
+  auditLogs           AuditLog[]
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
@@ -139,6 +143,8 @@ model BiteReport {
   animalStatus         AnimalStatus @map("animal_status")
   severity             Severity
   photoUrl             String?      @map("photo_url")
+  description          String?      @map("description")
+  voiceSeconds         Int?         @map("voice_seconds")
   status               ReportStatus @default(Reported)
   acceptedByHospitalId Int?         @map("accepted_by_hospital_id")
   createdAt            DateTime     @default(now()) @map("created_at")
@@ -148,6 +154,7 @@ model BiteReport {
   city     City      @relation(fields: [cityId], references: [id])
   hospital Hospital? @relation(fields: [acceptedByHospitalId], references: [id])
   case_    Case?
+  media    ReportMedia[]
 
   @@map("bite_reports")
 }
@@ -230,6 +237,8 @@ model AuditLog {
   ipAddress String?  @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
 
+  user User @relation(fields: [userId], references: [id])
+
   @@map("audit_logs")
 }
 
@@ -241,5 +250,22 @@ model PasswordResetToken {
   used      Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
+  user User @relation(fields: [userId], references: [id])
+
   @@map("password_reset_tokens")
+}
+// Wound photos and voice notes live in the database (not on disk) so the backend
+// can run on hosts without persistent storage. Served only via authenticated routes.
+model ReportMedia {
+  id        Int        @id @default(autoincrement())
+  reportId  Int        @map("report_id")
+  kind      String     // "photo" | "voice"
+  mime      String
+  data      Bytes
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  report BiteReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@unique([reportId, kind])
+  @@map("report_media")
 }

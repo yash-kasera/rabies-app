@@ -1,0 +1,6 @@
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { margin: 0; background: var(--color-background); color: var(--color-text-primary); font-family: var(--font-sans); font-size: var(--text-body-size); line-height: var(--text-body-lh); }
+*, *::before, *::after { box-sizing: border-box; }
+a { color: var(--color-primary); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: var(--color-primary-hover); }
+:focus-visible { outline: var(--focus-ring-width) solid var(--color-focus); outline-offset: var(--focus-ring-offset); }

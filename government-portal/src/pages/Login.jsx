@@ -1,94 +1,82 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { CircleAlert, ShieldCheck, KeyRound, ArrowLeft, Lock } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { useTheme } from '../context/ThemeContext'
-import api from '../services/api'
+import { Button, Field } from '../components/ui'
+
+const Alert = ({ tone, icon: Icon, children }) => (
+  <div role="alert" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', borderRadius: 12,
+    background: `var(--color-${tone}-container)`, color: `var(--color-on-${tone}-container)`, border: `1px solid var(--color-${tone}-border)` }}>
+    <Icon size={20} aria-hidden style={{ flex: 'none', marginTop: 1 }} /><span>{children}</span>
+  </div>
+)
 
 export default function Login() {
-  const [identifier, setIdentifier] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(null) // 'invalid' | 'govOnly' | string
   const [loading, setLoading] = useState(false)
-  const [showForgot, setShowForgot] = useState(false)
-  const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotMsg, setForgotMsg] = useState('')
-  const [forgotError, setForgotError] = useState('')
-  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgot, setForgot] = useState(false)
   const { login } = useAuth()
-  const { dark, toggle } = useTheme()
+  const navigate = useNavigate()
 
-  const handleSubmit = async (e) => {
+  const submit = async (e) => {
     e.preventDefault()
-    setError('')
+    setError(null)
     setLoading(true)
     try {
-      await login(identifier, password)
-      window.location.href = '/'
+      const { mustChangePassword } = await login(email, password)
+      navigate(mustChangePassword ? '/change-password' : '/', { replace: true })
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed')
+      setError(err.code === 'GOV_ONLY' ? 'govOnly' : err.response?.status === 401 ? 'invalid' : (err.response?.data?.error || 'Could not reach the server. Check your connection.'))
       setLoading(false)
     }
   }
 
-  const handleForgot = async (e) => {
-    e.preventDefault()
-    setForgotError('')
-    setForgotMsg('')
-    setForgotLoading(true)
-    try {
-      await api.post('/auth/forgot-password', { identifier: forgotEmail })
-      setForgotMsg('If an account exists, a reset token has been generated.')
-    } catch (err) {
-      setForgotError(err.response?.data?.error || 'Request failed')
-    } finally {
-      setForgotLoading(false)
-    }
-  }
-
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg dark:bg-bg-dark p-4">
-      <div className="w-full max-w-md card p-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold text-text-primary dark:text-text-primary-dark">
-            {showForgot ? 'Forgot Password' : 'Government Login'}
-          </h1>
-          <button onClick={toggle} className="text-text-secondary dark:text-text-secondary-dark text-xl">{dark ? '\u2600\ufe0f' : '\ud83c\udf19'}</button>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: 'var(--color-background)' }}>
+      <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span aria-hidden="true" style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 48, height: 48, border: '1px dashed var(--color-border-strong)', borderRadius: 8, background: 'var(--color-surface-alt)', color: 'var(--color-text-secondary)', font: '9px/1.1 var(--font-mono)', textAlign: 'center' }}>DEPT<br />LOGO</span>
+          <div>
+            <div style={{ fontSize: 18, lineHeight: '24px', fontWeight: 600 }}>Government Portal</div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>Rabies Response System · Jabalpur</div>
+          </div>
         </div>
-        {error && !showForgot && <div className="bg-danger/10 text-danger dark:text-danger-dark p-3 rounded-lg text-sm mb-4">{error}</div>}
-        {!showForgot ? (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">Email</label>
-              <input type="text" className="input-field" value={identifier} onChange={e => setIdentifier(e.target.value)} required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">Password</label>
-              <input type="password" className="input-field" value={password} onChange={e => setPassword(e.target.value)} required />
-            </div>
-            <button type="submit" disabled={loading} className="btn-primary w-full">
-              {loading ? 'Signing in...' : 'Login'}
-            </button>
-            <button type="button" onClick={() => setShowForgot(true)} className="text-xs text-primary dark:text-primary-dark hover:underline w-full text-center block mt-2">
-              Forgot Password?
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={handleForgot} className="space-y-4">
-            {forgotMsg && <div className="bg-success/10 text-success dark:text-success-dark p-3 rounded-lg text-sm mb-2">{forgotMsg}</div>}
-            {forgotError && <div className="bg-danger/10 text-danger dark:text-danger-dark p-3 rounded-lg text-sm mb-2">{forgotError}</div>}
-            <div>
-              <label className="block text-sm font-medium text-text-primary dark:text-text-primary-dark mb-1">Email or Phone</label>
-              <input type="text" className="input-field" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} required placeholder="Enter your email or phone" />
-            </div>
-            <button type="submit" disabled={forgotLoading} className="btn-primary w-full">
-              {forgotLoading ? 'Sending...' : 'Send Reset Token'}
-            </button>
-            <button type="button" onClick={() => { setShowForgot(false); setForgotMsg(''); setForgotError('') }} className="text-xs text-text-secondary dark:text-text-secondary-dark hover:underline w-full text-center block">
-              Back to Login
-            </button>
-          </form>
-        )}
-        <p className="text-xs text-text-secondary dark:text-text-secondary-dark text-center mt-4">
-          Government accounts only — no public signup
+
+        <div className="rr-card rr-card--pad-lg" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {!forgot ? (
+            <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <h1 style={{ margin: 0, fontSize: 22, lineHeight: '30px', fontWeight: 600 }}>Log in</h1>
+              {error === 'invalid' && <Alert tone="danger" icon={CircleAlert}><strong className="font-semibold">Invalid credentials.</strong> Check your email and password and try again.</Alert>}
+              {error === 'govOnly' && <Alert tone="warning" icon={ShieldCheck}><strong className="font-semibold">This portal is for government accounts only.</strong> Hospital staff should use the Hospital Portal.</Alert>}
+              {error && error !== 'invalid' && error !== 'govOnly' && <Alert tone="danger" icon={CircleAlert}>{error}</Alert>}
+              <Field label="Email" htmlFor="g-email">
+                <input id="g-email" className="rr-input" type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} />
+              </Field>
+              <Field label="Password" htmlFor="g-pw">
+                <input id="g-pw" className="rr-input" type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} />
+              </Field>
+              <button type="submit" className="rr-btn rr-btn--primary rr-btn--block" disabled={loading}>
+                <span className="rr-btn__label">{loading ? 'Logging in…' : 'Log in'}</span>
+              </button>
+              <Button kind="text" style={{ alignSelf: 'center' }} onClick={() => setForgot(true)}>Forgot password?</Button>
+            </form>
+          ) : (
+            <>
+              <div role="status" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <span style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, borderRadius: 999, background: 'var(--color-info-container)', color: 'var(--color-on-info-container)' }}><KeyRound size={20} aria-hidden /></span>
+                <div>
+                  <h1 style={{ margin: 0, fontSize: 20, lineHeight: '28px', fontWeight: 600 }}>Forgot your password?</h1>
+                  <p style={{ margin: '4px 0 0', color: 'var(--color-text-secondary)' }}>Ask another government administrator to reset it from <strong className="font-semibold">Staff Accounts</strong>. For security, government passwords cannot be reset from this page.</p>
+                </div>
+              </div>
+              <Button kind="secondary" block icon={ArrowLeft} onClick={() => setForgot(false)}>Back to login</Button>
+            </>
+          )}
+        </div>
+        <p style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+          <Lock size={16} aria-hidden />Government accounts only — no public signup
         </p>
       </div>
     </div>

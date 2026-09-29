@@ -1,48 +1,60 @@
 const { Router } = require("express");
-const { PrismaClient } = require("@prisma/client");
+const prisma = require("../utils/prisma");
 const { authenticate, authorize } = require("../middleware/auth");
-const { getIO } = require("../utils/socket");
+const { broadcastReportAccepted } = require("../utils/socket");
 const { auditMiddleware } = require("../middleware/audit");
+const { ENUMS, isOneOf, normalizePhone, parseId, parseDate } = require("../utils/validation");
 
 const router = Router();
-const prisma = new PrismaClient();
 
 router.use(authenticate);
 router.use(authorize("hospital"));
 
-async function getHospitalId(userId) {
-  const hospital = await prisma.hospital.findFirst({
-    where: { accounts: { some: { id: userId } } },
-  });
-  return hospital?.id;
-}
+// Resolve the caller's hospital once per request and refuse deactivated hospitals,
+// so deactivation takes effect immediately rather than when the token expires.
+router.use(async (req, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { hospital: true },
+    });
+    if (!user?.hospital) return res.status(403).json({ error: "No hospital linked to this account" });
+    if (user.hospital.status !== "Active") {
+      return res.status(403).json({ error: "This hospital has been deactivated" });
+    }
+    req.hospital = user.hospital;
+    next();
+  } catch (err) {
+    console.error("Resolve hospital error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 const DOSE_SCHEDULE = [0, 3, 7, 14, 28];
 
-async function createWithDoses(tx, caseId, createdById) {
-  for (let i = 0; i < DOSE_SCHEDULE.length; i++) {
-    const scheduledDate = new Date();
-    scheduledDate.setDate(scheduledDate.getDate() + DOSE_SCHEDULE[i]);
-    await tx.vaccineDose.create({
-      data: {
-        caseId,
-        doseNumber: i + 1,
-        scheduledDate,
-      },
-    });
+async function createWithDoses(tx, caseId, startDate) {
+  const base = startDate || new Date();
+  await tx.vaccineDose.createMany({
+    data: DOSE_SCHEDULE.map((offset, i) => {
+      const scheduledDate = new Date(base);
+      scheduledDate.setDate(scheduledDate.getDate() + offset);
+      return { caseId, doseNumber: i + 1, scheduledDate };
+    }),
+  });
+}
+
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
   }
 }
 
 router.get("/incoming-reports", async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked to this account" });
-
-    const hospital = await prisma.hospital.findUnique({ where: { id: hospitalId } });
-
     const reports = await prisma.biteReport.findMany({
       where: {
-        cityId: hospital.cityId,
+        cityId: req.hospital.cityId,
         status: "Reported",
       },
       orderBy: { createdAt: "desc" },
@@ -56,24 +68,24 @@ router.get("/incoming-reports", async (req, res) => {
 
 router.post("/reports/:id/accept", auditMiddleware("accept", "BiteReport"), async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked to this account" });
-
-    const report = await prisma.biteReport.findUnique({
-      where: { id: parseInt(req.params.id) },
-    });
-
-    if (!report) return res.status(404).json({ error: "Report not found" });
-    if (report.status !== "Reported") {
-      return res.status(409).json({ error: "Report already accepted by another hospital" });
-    }
+    const hospitalId = req.hospital.id;
+    const reportId = parseId(req.params.id);
+    if (!reportId) return res.status(404).json({ error: "Report not found" });
 
     const case_ = await prisma.$transaction(async (tx) => {
-      await tx.biteReport.update({
-        where: { id: report.id },
+      // Conditional update: only one hospital can move a report out of "Reported",
+      // even if several click Accept at the same moment.
+      const claimed = await tx.biteReport.updateMany({
+        where: { id: reportId, status: "Reported", cityId: req.hospital.cityId },
         data: { status: "Accepted", acceptedByHospitalId: hospitalId },
       });
+      if (claimed.count === 0) {
+        const existing = await tx.biteReport.findUnique({ where: { id: reportId } });
+        if (!existing || existing.cityId !== req.hospital.cityId) throw new HttpError(404, "Report not found");
+        throw new HttpError(409, "Report already accepted by another hospital");
+      }
 
+      const report = await tx.biteReport.findUnique({ where: { id: reportId } });
       const newCase = await tx.case.create({
         data: {
           biteReportId: report.id,
@@ -91,21 +103,20 @@ router.post("/reports/:id/accept", auditMiddleware("accept", "BiteReport"), asyn
         },
       });
 
-      await createWithDoses(tx, newCase.id, req.user.id);
+      await createWithDoses(tx, newCase.id);
       return newCase;
     });
 
-    const hospital = await prisma.hospital.findUnique({ where: { id: hospitalId } });
-    const io = getIO();
-    io.to(`city-${hospital.cityId}`).emit("report-accepted", { reportId: report.id, hospitalId });
+    broadcastReportAccepted(reportId, hospitalId, req.hospital.cityId);
 
     const result = await prisma.case.findUnique({
       where: { id: case_.id },
-      include: { doses: true },
+      include: { doses: { orderBy: { doseNumber: "asc" } } },
     });
 
     res.status(201).json(result);
   } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     console.error("Accept report error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -113,43 +124,56 @@ router.post("/reports/:id/accept", auditMiddleware("accept", "BiteReport"), asyn
 
 router.post("/cases", auditMiddleware("create", "Case"), async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked to this account" });
-
+    const hospitalId = req.hospital.id;
     const {
       patientName, contactNumber, address, incidentDatetime,
-      animalType, animalStatus, severity, treatmentNotes,
+      animalType, animalStatus, severity, treatmentNotes, handledBy,
     } = req.body;
 
-    if (!patientName || !contactNumber || !animalType || !severity) {
+    if (!patientName?.trim() || !contactNumber || !animalType || !severity) {
       return res.status(400).json({ error: "Required fields missing" });
     }
+    const phone = normalizePhone(contactNumber);
+    if (!phone) return res.status(400).json({ error: "Enter a valid contact number (10–15 digits)" });
+    if (!isOneOf(animalType, ENUMS.animalType)) return res.status(400).json({ error: "Invalid animal type" });
+    if (!isOneOf(severity, ENUMS.severity)) return res.status(400).json({ error: "Invalid severity" });
+    if (animalStatus && !isOneOf(animalStatus, ENUMS.animalStatus)) {
+      return res.status(400).json({ error: "Invalid animal status" });
+    }
+    const incidentAt = incidentDatetime ? parseDate(incidentDatetime) : new Date();
+    if (!incidentAt || incidentAt.getTime() > Date.now() + 5 * 60 * 1000) {
+      return res.status(400).json({ error: "Invalid incident date/time" });
+    }
+
+    const notes = [treatmentNotes?.trim(), handledBy?.trim() && `Handled by: ${handledBy.trim()}`]
+      .filter(Boolean)
+      .join("\n") || null;
 
     const case_ = await prisma.$transaction(async (tx) => {
       const newCase = await tx.case.create({
         data: {
           hospitalId,
-          patientName,
-          contactNumber,
-          address,
-          incidentDatetime: incidentDatetime ? new Date(incidentDatetime) : new Date(),
+          patientName: patientName.trim(),
+          contactNumber: phone,
+          address: address?.trim() || null,
+          incidentDatetime: incidentAt,
           animalType,
           animalStatus: animalStatus || "Unknown",
           severity,
-          treatmentNotes,
+          treatmentNotes: notes,
           status: "Accepted",
           source: "hospital_direct",
           createdBy: req.user.id,
         },
       });
 
-      await createWithDoses(tx, newCase.id, req.user.id);
+      await createWithDoses(tx, newCase.id);
       return newCase;
     });
 
     const result = await prisma.case.findUnique({
       where: { id: case_.id },
-      include: { doses: true },
+      include: { doses: { orderBy: { doseNumber: "asc" } } },
     });
 
     res.status(201).json(result);
@@ -161,17 +185,21 @@ router.post("/cases", auditMiddleware("create", "Case"), async (req, res) => {
 
 router.get("/cases", async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked to this account" });
-
+    const hospitalId = req.hospital.id;
     const { status, from, to, search } = req.query;
     const where = { hospitalId };
 
-    if (status) where.status = status;
-    if (from || to) {
+    if (status) {
+      if (!isOneOf(status, ENUMS.caseStatus)) return res.status(400).json({ error: "Invalid status" });
+      where.status = status;
+    }
+    const fromDate = parseDate(from);
+    const toDate = parseDate(to);
+    if (fromDate || toDate) {
       where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(from);
-      if (to) where.createdAt.lte = new Date(to);
+      if (fromDate) where.createdAt.gte = fromDate;
+      // A bare date means "through the end of that day".
+      if (toDate) where.createdAt.lt = new Date(toDate.getTime() + 24 * 60 * 60 * 1000);
     }
     if (search) {
       where.OR = [
@@ -180,19 +208,22 @@ router.get("/cases", async (req, res) => {
       ];
     }
 
-    const cases = await prisma.case.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: { doses: true },
-    });
-
-    const stats = await Promise.all([
-      prisma.case.count({ where: { hospitalId, createdAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } } }),
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const [cases, totalThisMonth, underTreatment, completed] = await Promise.all([
+      prisma.case.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          doses: { orderBy: { doseNumber: "asc" } },
+          biteReport: { select: { id: true, description: true, photoUrl: true, voiceSeconds: true } },
+        },
+      }),
+      prisma.case.count({ where: { hospitalId, createdAt: { gte: startOfMonth } } }),
       prisma.case.count({ where: { hospitalId, status: "UnderTreatment" } }),
       prisma.case.count({ where: { hospitalId, status: "Completed" } }),
     ]);
 
-    res.json({ cases, stats: { totalThisMonth: stats[0], underTreatment: stats[1], completed: stats[2] } });
+    res.json({ cases, stats: { totalThisMonth, underTreatment, completed } });
   } catch (err) {
     console.error("Get cases error:", err);
     res.status(500).json({ error: "Internal server error" });
@@ -201,12 +232,10 @@ router.get("/cases", async (req, res) => {
 
 router.get("/cases/:id", async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked" });
-
-    const case_ = await prisma.case.findFirst({
-      where: { id: parseInt(req.params.id), hospitalId },
-      include: { doses: true, biteReport: true },
+    const id = parseId(req.params.id);
+    const case_ = id && await prisma.case.findFirst({
+      where: { id, hospitalId: req.hospital.id },
+      include: { doses: { orderBy: { doseNumber: "asc" } }, biteReport: true },
     });
 
     if (!case_) return res.status(404).json({ error: "Case not found" });
@@ -219,16 +248,20 @@ router.get("/cases/:id", async (req, res) => {
 
 router.patch("/cases/:id", auditMiddleware("update", "Case"), async (req, res) => {
   try {
-    const hospitalId = await getHospitalId(req.user.id);
-    if (!hospitalId) return res.status(403).json({ error: "No hospital linked" });
-
     const { status, treatmentNotes, doses } = req.body;
-    const caseId = parseInt(req.params.id);
+    const caseId = parseId(req.params.id);
 
-    const existing = await prisma.case.findFirst({
-      where: { id: caseId, hospitalId },
+    const existing = caseId && await prisma.case.findFirst({
+      where: { id: caseId, hospitalId: req.hospital.id },
     });
     if (!existing) return res.status(404).json({ error: "Case not found" });
+
+    if (status !== undefined && !isOneOf(status, ENUMS.caseStatus)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    if (doses !== undefined && !Array.isArray(doses)) {
+      return res.status(400).json({ error: "doses must be an array" });
+    }
 
     const updateData = {};
     if (status) updateData.status = status;
@@ -237,38 +270,56 @@ router.patch("/cases/:id", auditMiddleware("update", "Case"), async (req, res) =
     await prisma.$transaction(async (tx) => {
       await tx.case.update({ where: { id: caseId }, data: updateData });
 
-      if (doses && Array.isArray(doses)) {
-        for (const dose of doses) {
-          if (dose.id) {
-            await tx.vaccineDose.update({
-              where: { id: dose.id },
-              data: {
-                givenDate: dose.givenDate ? new Date(dose.givenDate) : null,
-                givenBy: dose.givenDate ? req.user.id : null,
-              },
-            });
-          } else {
-            await tx.vaccineDose.create({
-              data: {
-                caseId,
-                doseNumber: dose.doseNumber,
-                scheduledDate: new Date(dose.scheduledDate),
-                givenDate: dose.givenDate ? new Date(dose.givenDate) : null,
-                givenBy: dose.givenDate ? req.user.id : null,
-              },
-            });
-          }
+      // Keep the citizen-facing report in step with the case so the app shows progress.
+      if (status && existing.biteReportId) {
+        await tx.biteReport.update({ where: { id: existing.biteReportId }, data: { status } });
+      }
+
+      for (const dose of doses || []) {
+        const givenDate = dose.givenDate ? parseDate(dose.givenDate) : null;
+        const scheduledDate = dose.scheduledDate ? parseDate(dose.scheduledDate) : undefined;
+        if (dose.givenDate && !givenDate) throw new HttpError(400, "Invalid dose given date");
+        if (dose.scheduledDate && !scheduledDate) throw new HttpError(400, "Invalid dose scheduled date");
+
+        if (dose.id) {
+          // Scoped to this case so a hospital cannot edit doses on another hospital's case.
+          // Only touch the fields that were sent, so rescheduling never clears a given date
+          // and re-saving doesn't reassign who administered earlier doses.
+          const updated = await tx.vaccineDose.updateMany({
+            where: { id: parseId(dose.id) || -1, caseId },
+            data: {
+              ...(scheduledDate && { scheduledDate }),
+              ...("givenDate" in dose && { givenDate, givenBy: givenDate ? req.user.id : null }),
+            },
+          });
+          if (updated.count === 0) throw new HttpError(400, "Dose does not belong to this case");
+        } else {
+          const doseNumber = parseId(dose.doseNumber);
+          if (!doseNumber || !scheduledDate) throw new HttpError(400, "New doses need a dose number and scheduled date");
+          await tx.vaccineDose.create({
+            data: {
+              caseId,
+              doseNumber,
+              scheduledDate,
+              givenDate,
+              givenBy: givenDate ? req.user.id : null,
+            },
+          });
         }
       }
     });
 
     const updated = await prisma.case.findUnique({
       where: { id: caseId },
-      include: { doses: true },
+      include: {
+        doses: { orderBy: { doseNumber: "asc" } },
+        biteReport: { select: { id: true, description: true, photoUrl: true, voiceSeconds: true } },
+      },
     });
 
     res.json(updated);
   } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
     console.error("Update case error:", err);
     res.status(500).json({ error: "Internal server error" });
   }

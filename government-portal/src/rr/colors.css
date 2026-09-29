@@ -1,0 +1,139 @@
+/* Rabies Response — colour tokens. Light = :root, Dark = [data-theme="dark"].
+   Every text / on-* pair meets WCAG AA 4.5:1 on its container. *-border-strong meets 3:1 non-text contrast. */
+:root {
+  --color-background: #F7F3EC;
+  --color-surface: #FFFFFF;
+  --color-surface-alt: #F0EADF;
+  --color-border: #DED5C6;
+  --color-border-strong: #8A7F6E;
+  --color-text-primary: #1B2428;
+  --color-text-secondary: #4D5A60;
+  --color-text-disabled: #7A8286;
+
+  --color-primary: #1E4D5A;
+  --color-primary-hover: #173F4A;
+  --color-primary-pressed: #11323B;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #DDEBEC;
+  --color-on-primary-container: #0F3440;
+  --color-primary-border: #9FC3C8;
+
+  --color-secondary: #3E6A5A;
+  --color-secondary-container: #E0ECE5;
+  --color-on-secondary-container: #173A2E;
+
+  --color-emergency: #C0271D;
+  --color-emergency-hover: #A11F17;
+  --color-emergency-pressed: #85190F;
+  --color-on-emergency: #FFFFFF;
+  --color-emergency-container: #FDE7E4;
+  --color-on-emergency-container: #7A1610;
+
+  --color-danger: #B3261E;
+  --color-danger-container: #FCE8E6;
+  --color-on-danger-container: #7A1712;
+  --color-danger-border: #EFA59E;
+
+  --color-warning: #8A5300;
+  --color-warning-container: #FFF0D1;
+  --color-on-warning-container: #5C3700;
+  --color-warning-border: #E3B45A;
+
+  --color-orange: #9A3F0C;
+  --color-orange-container: #FDE6D6;
+  --color-on-orange-container: #6B2A06;
+  --color-orange-border: #EFA77A;
+
+  --color-success: #1E6B3A;
+  --color-success-container: #E2F2E6;
+  --color-on-success-container: #114625;
+  --color-success-border: #93CBA3;
+
+  --color-info: #1F5A96;
+  --color-info-container: #E3EDF8;
+  --color-on-info-container: #123D69;
+  --color-info-border: #9DBEE3;
+
+  --color-neutral: #56626A;
+  --color-neutral-container: #EDEAE4;
+  --color-on-neutral-container: #333D43;
+  --color-neutral-border: #C4BDB1;
+
+  --color-focus: #1F5A96;
+  --color-disabled-bg: #E6E1D8;
+  --color-disabled-text: #7A8286;
+  --color-inverse-surface: #1B2428;
+  --color-on-inverse: #F7F3EC;
+  --color-inverse-primary: #8FD0DA;
+  --color-scrim: rgba(17, 23, 26, 0.56);
+  --color-skeleton: #E7DFD2;
+}
+
+[data-theme="dark"] {
+  --color-background: #0F1518;
+  --color-surface: #172024;
+  --color-surface-alt: #1F2A2F;
+  --color-border: #2E3B42;
+  --color-border-strong: #71818A;
+  --color-text-primary: #EDF1F2;
+  --color-text-secondary: #B0BCC2;
+  --color-text-disabled: #6F7C82;
+
+  --color-primary: #86C9D3;
+  --color-primary-hover: #A2D7DF;
+  --color-primary-pressed: #BFE4EA;
+  --color-on-primary: #06323B;
+  --color-primary-container: #1C4852;
+  --color-on-primary-container: #CDEEF3;
+  --color-primary-border: #3E6F79;
+
+  --color-secondary: #9CCBB6;
+  --color-secondary-container: #1E3B31;
+  --color-on-secondary-container: #CFEBDD;
+
+  --color-emergency: #CC3328;
+  --color-emergency-hover: #B42A20;
+  --color-emergency-pressed: #9A2219;
+  --color-on-emergency: #FFFFFF;
+  --color-emergency-container: #45140F;
+  --color-on-emergency-container: #FFD9D3;
+
+  --color-danger: #FF8A7F;
+  --color-danger-container: #47150F;
+  --color-on-danger-container: #FFDAD4;
+  --color-danger-border: #8C3A31;
+
+  --color-warning: #F0C064;
+  --color-warning-container: #3A2A08;
+  --color-on-warning-container: #FFE3A6;
+  --color-warning-border: #7A5A1A;
+
+  --color-orange: #F5A06B;
+  --color-orange-container: #40200A;
+  --color-on-orange-container: #FFDCC4;
+  --color-orange-border: #84461F;
+
+  --color-success: #7FD49B;
+  --color-success-container: #143722;
+  --color-on-success-container: #C5EFD1;
+  --color-success-border: #2F6B45;
+
+  --color-info: #93BEF0;
+  --color-info-container: #152D4A;
+  --color-on-info-container: #D4E5FA;
+  --color-info-border: #365D8C;
+
+  --color-neutral: #AAB5BA;
+  --color-neutral-container: #263136;
+  --color-on-neutral-container: #DDE3E6;
+  --color-neutral-border: #4A585F;
+
+  --color-focus: #93BEF0;
+  --color-disabled-bg: #232D32;
+  --color-disabled-text: #7E8A90;
+  --color-inverse-surface: #EDF1F2;
+  --color-on-inverse: #172024;
+  --color-inverse-primary: #1E4D5A;
+  --color-scrim: rgba(0, 0, 0, 0.64);
+  --color-skeleton: #253137;
+}

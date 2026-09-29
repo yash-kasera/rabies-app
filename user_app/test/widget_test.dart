@@ -1,30 +1,42 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:user_app/providers/auth_provider.dart';
+import 'package:user_app/providers/locale_provider.dart';
+import 'package:user_app/providers/theme_provider.dart';
+import 'package:user_app/screens/login_screen.dart';
+import 'package:user_app/theme/rr_theme.dart';
 
-import 'package:user_app/main.dart';
+Widget _app() => MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => LocaleProvider()),
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
+      ],
+      child: MaterialApp(theme: RRTheme.light(), home: const LoginScreen()),
+    );
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  setUp(() => SharedPreferences.setMockInitialValues({}));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  testWidgets('login screen renders and requires credentials', (tester) async {
+    await tester.pumpWidget(_app());
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    expect(find.text('Phone number or email'), findsOneWidget);
+    expect(find.text("Don't have an account?"), findsOneWidget);
+
+    await tester.tap(find.text('Log in').last);
     await tester.pump();
+    expect(find.text('Required'), findsNWidgets(2));
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('language toggle switches the screen to Hindi', (tester) async {
+    await tester.pumpWidget(_app());
+
+    await tester.tap(find.text('हिंदी'));
+    await tester.pump();
+    expect(find.text('फ़ोन नंबर या ईमेल'), findsOneWidget);
+    expect(find.text('English'), findsOneWidget);
   });
 }

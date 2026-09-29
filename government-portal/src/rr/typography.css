@@ -1,0 +1,33 @@
+/* System fonts only — no webfont download. Roboto (Android), Segoe UI (Windows). Devanagari falls back to Noto Sans Devanagari (Android) / Nirmala UI or Mangal (Windows). Two weights: 400 and 600. */
+:root {
+  --font-sans: Roboto, "Segoe UI", "Noto Sans", "Nirmala UI", "Noto Sans Devanagari", Mangal, system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Roboto Mono", Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-weight-regular: 400;
+  --font-weight-strong: 600;
+
+  --font-size-12: 12px; --font-size-13: 13px; --font-size-14: 14px; --font-size-16: 16px;
+  --font-size-18: 18px; --font-size-20: 20px; --font-size-24: 24px; --font-size-28: 28px; --font-size-32: 32px;
+
+  /* Mobile roles (default). Line-heights >= 1.4 so Devanagari matras never clip. */
+  --text-display-size: 28px;  --text-display-lh: 36px;
+  --text-title-lg-size: 24px; --text-title-lg-lh: 32px;
+  --text-title-size: 20px;    --text-title-lh: 28px;
+  --text-title-sm-size: 18px; --text-title-sm-lh: 26px;
+  --text-body-lg-size: 18px;  --text-body-lg-lh: 28px;
+  --text-body-size: 16px;     --text-body-lh: 24px;
+  --text-label-size: 16px;    --text-label-lh: 22px;
+  --text-caption-size: 14px;  --text-caption-lh: 20px;
+  --text-stat-size: 32px;     --text-stat-lh: 40px;
+}
+/* Desktop portals: <html data-density="desktop"> */
+[data-density="desktop"] {
+  --text-display-size: 28px;  --text-display-lh: 36px;
+  --text-title-lg-size: 22px; --text-title-lg-lh: 30px;
+  --text-title-size: 18px;    --text-title-lh: 26px;
+  --text-title-sm-size: 16px; --text-title-sm-lh: 24px;
+  --text-body-lg-size: 16px;  --text-body-lg-lh: 24px;
+  --text-body-size: 14px;     --text-body-lh: 22px;
+  --text-label-size: 14px;    --text-label-lh: 20px;
+  --text-caption-size: 13px;  --text-caption-lh: 18px;
+  --text-stat-size: 28px;     --text-stat-lh: 36px;
+}

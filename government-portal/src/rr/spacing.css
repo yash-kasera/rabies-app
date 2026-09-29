@@ -1,0 +1,21 @@
+/* 4px base spacing, radii, borders, the single shadow level, motion, control sizes. */
+:root {
+  --space-0: 0px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px;
+  --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  --radius-xs: 4px; --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 24px; --radius-pill: 999px;
+
+  --border-width-1: 1px; --border-width-2: 2px;
+  --focus-ring-width: 3px; --focus-ring-offset: 2px;
+
+  --shadow-1: 0 1px 3px rgba(27, 36, 40, 0.10);
+
+  --motion-fast: 120ms; --motion-base: 150ms; --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  --touch-min: 48px;
+  --control-h: 48px; --control-h-lg: 56px; --control-h-sm: 40px;
+  --container-max: 1280px; --sidebar-w: 240px; --panel-w: 480px;
+}
+[data-theme="dark"] { --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.5); }
+[data-density="desktop"] { --control-h: 40px; --control-h-lg: 48px; --control-h-sm: 36px; }
+@media (prefers-reduced-motion: reduce) { :root { --motion-fast: 0ms; --motion-base: 0ms; } }

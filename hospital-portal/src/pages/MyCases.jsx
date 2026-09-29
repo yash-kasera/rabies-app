@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../services/api'
+import ReportPhoto from '../components/ReportPhoto'
+import VoiceNote from '../components/VoiceNote'
 
 const statusColors = {
   Accepted: 'bg-warning/20 text-warning dark:text-warning-dark',
@@ -32,10 +34,24 @@ export default function MyCases() {
 
   useEffect(() => { loadCases() }, [loadCases])
 
+  // Replace the panel's copy with the server's version so new doses get their ids
+  // (otherwise the next save would create them again).
   const updateCase = async (id, updates) => {
-    await api.patch(`/hospital/cases/${id}`, updates)
-    loadCases()
-    setSelected(prev => prev?.id === id ? { ...prev, ...updates } : prev)
+    try {
+      const res = await api.patch(`/hospital/cases/${id}`, updates)
+      setSelected(prev => prev?.id === id ? res.data : prev)
+      loadCases()
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to save changes')
+      loadCases()
+    }
+  }
+
+  const saveDose = (dose, changes) => {
+    const payload = dose.id
+      ? { id: dose.id, ...changes }
+      : { doseNumber: dose.doseNumber, scheduledDate: dose.scheduledDate, givenDate: dose.givenDate, ...changes }
+    updateCase(selected.id, { doses: [payload] })
   }
 
   const toggleSort = (key) => {
@@ -154,11 +170,21 @@ export default function MyCases() {
                 <div><label className="text-xs text-text-secondary dark:text-text-secondary-dark">Animal</label><p>{selected.animalType}</p></div>
                 <div><label className="text-xs text-text-secondary dark:text-text-secondary-dark">Severity</label><p>{selected.severity.replace(/([A-Z])/g, ' $1').trim()}</p></div>
               </div>
+              {selected.biteReport?.description && (
+                <div>
+                  <label className="text-xs text-text-secondary dark:text-text-secondary-dark">Patient's description</label>
+                  <p className="italic">“{selected.biteReport.description}”</p>
+                </div>
+              )}
+              {selected.biteReport?.photoUrl && <ReportPhoto reportId={selected.biteReport.id} />}
+              {selected.biteReport?.voiceSeconds != null && <VoiceNote reportId={selected.biteReport.id} seconds={selected.biteReport.voiceSeconds} />}
               <div>
                 <label className="text-xs text-text-secondary dark:text-text-secondary-dark">Status</label>
                 <select className="input-field mt-1" value={selected.status}
-                  onChange={e => setSelected({ ...selected, status: e.target.value })}
-                  onBlur={() => updateCase(selected.id, { status: selected.status })}>
+                  onChange={e => {
+                    setSelected({ ...selected, status: e.target.value })
+                    updateCase(selected.id, { status: e.target.value })
+                  }}>
                   <option value="Accepted">Accepted</option>
                   <option value="UnderTreatment">Under Treatment</option>
                   <option value="Completed">Completed</option>
@@ -177,8 +203,8 @@ export default function MyCases() {
                   <button className="text-xs text-primary dark:text-primary-dark font-medium"
                     onClick={() => {
                       const maxDose = selected.doses?.length ? Math.max(...selected.doses.map(d => d.doseNumber)) : 0
-                      const newDose = { doseNumber: maxDose + 1, scheduledDate: new Date(Date.now() + maxDose * 3 * 86400000).toISOString().slice(0, 10), givenDate: null }
-                      setSelected({ ...selected, doses: [...(selected.doses || []), newDose] })
+                      const newDose = { doseNumber: maxDose + 1, scheduledDate: new Date().toISOString().slice(0, 10), givenDate: null }
+                      saveDose(newDose, {})
                     }}>
                     + Add Dose
                   </button>
@@ -188,20 +214,17 @@ export default function MyCases() {
                     <span className="font-medium">Dose {d.doseNumber}:</span>
                     <input type="date" className="input-field w-auto text-xs" value={d.scheduledDate?.slice(0, 10) || ''}
                       onChange={e => {
+                        if (!e.target.value) return
                         const doses = [...selected.doses]
                         doses[i] = { ...doses[i], scheduledDate: e.target.value }
                         setSelected({ ...selected, doses })
-                      }}
-                      onBlur={() => updateCase(selected.id, { doses: selected.doses })} />
+                        saveDose(d, { scheduledDate: e.target.value })
+                      }} />
                     {d.givenDate ? (
                       <span className="text-success dark:text-success-dark">✓ {new Date(d.givenDate).toLocaleDateString()}</span>
                     ) : (
                       <button className="text-xs text-primary dark:text-primary-dark"
-                        onClick={() => {
-                          const doses = selected.doses.map((x, idx) => idx === i ? { ...x, givenDate: new Date().toISOString() } : x)
-                          setSelected({ ...selected, doses })
-                          updateCase(selected.id, { doses })
-                        }}>
+                        onClick={() => saveDose(d, { givenDate: new Date().toISOString() })}>
                         Mark Given
                       </button>
                     )}

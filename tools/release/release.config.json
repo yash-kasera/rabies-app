@@ -1,0 +1,10 @@
+{
+  "siteUrl": "https://rabies-jabalpur.rabies.workers.dev",
+  "apiBaseUrl": "https://FILL-IN.onrender.com",
+  "pagesProject": "rabies-jabalpur",
+  "govPagesProject": "rabies-jabalpur-gov",
+  "hospitalPagesProject": "rabies-jabalpur-hospital",
+  "minVersionCode": 1,
+  "govUrl": "https://rabies-jabalpur-gov.rabies.workers.dev",
+  "hospitalUrl": "https://rabies-jabalpur-hospital.rabies.workers.dev"
+}

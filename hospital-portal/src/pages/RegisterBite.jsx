@@ -2,11 +2,17 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 
+// datetime-local inputs work in local time; toISOString() would shift the default to UTC.
+function localDateTimeValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16)
+}
+
 export default function RegisterBite() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
     patientName: '', contactNumber: '', address: '',
-    incidentDatetime: new Date().toISOString().slice(0, 16),
+    incidentDatetime: localDateTimeValue(),
     animalType: 'Dog', animalStatus: 'Unknown', severity: 'MinorScratch',
     treatmentNotes: '', handledBy: '',
   })
@@ -20,7 +26,10 @@ export default function RegisterBite() {
     setError('')
     setLoading(true)
     try {
-      await api.post('/hospital/cases', form)
+      await api.post('/hospital/cases', {
+        ...form,
+        incidentDatetime: form.incidentDatetime ? new Date(form.incidentDatetime).toISOString() : undefined,
+      })
       navigate('/cases')
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to register case')
@@ -45,7 +54,7 @@ export default function RegisterBite() {
         <div className="border-t border-border dark:border-border-dark pt-4">
           <h2 className="text-lg font-semibold text-text-primary dark:text-text-primary-dark mb-3">Incident Info</h2>
           <div className="space-y-3">
-            <input type="datetime-local" name="incidentDatetime" className="input-field" value={form.incidentDatetime} onChange={handleChange} />
+            <input type="datetime-local" name="incidentDatetime" className="input-field" value={form.incidentDatetime} onChange={handleChange} max={localDateTimeValue()} />
             <select name="animalType" className="input-field" value={form.animalType} onChange={handleChange}>
               <option value="Dog">Dog</option>
               <option value="Cat">Cat</option>

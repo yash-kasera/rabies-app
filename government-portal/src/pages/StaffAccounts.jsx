@@ -1,86 +1,135 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { UserPlus, KeyRound, RefreshCw, Users } from 'lucide-react'
 import api from '../services/api'
+import { useAuth } from '../context/AuthContext'
+import CredentialsDialog from '../components/CredentialsDialog'
+import { Button, Dialog, Field, Notice, Skeleton, StateView, useToast, fmtDate, fmtPhone } from '../components/ui'
 
-export default function StaffAccounts() {
-  const [staff, setStaff] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
-  const [form, setForm] = useState({ fullName: '', email: '', password: '' })
+const GOV_EMAIL = /@([a-z0-9-]+\.)*(mp\.gov\.in|nic\.in)$/i
+const initials = (name) => name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('')
+
+function AddStaff({ onClose, onCreated }) {
+  const [form, setForm] = useState({ fullName: '', email: '', phoneNumber: '' })
+  const [errors, setErrors] = useState({})
+  const [serverError, setServerError] = useState('')
   const [saving, setSaving] = useState(false)
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
 
-  const loadStaff = useCallback(async () => {
-    try {
-      const res = await api.get('/government/staff')
-      setStaff(res.data)
-    } catch {} finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { loadStaff() }, [loadStaff])
-
-  const handleAdd = async (e) => {
+  const submit = async (e) => {
     e.preventDefault()
+    const errs = {}
+    if (!form.fullName.trim()) errs.fullName = 'Enter the officer\'s full name.'
+    if (!GOV_EMAIL.test(form.email.trim())) errs.email = 'Use an @mp.gov.in or @nic.in address.'
+    if (form.phoneNumber && !/^\+?[\d\s-]{10,17}$/.test(form.phoneNumber.trim())) errs.phoneNumber = 'Enter a 10-digit mobile number.'
+    setErrors(errs)
+    setServerError('')
+    if (Object.keys(errs).length) return
     setSaving(true)
     try {
-      await api.post('/government/staff', form)
-      setShowAdd(false)
-      setForm({ fullName: '', email: '', password: '' })
-      loadStaff()
+      const res = await api.post('/government/staff', { fullName: form.fullName.trim(), email: form.email.trim(), phoneNumber: form.phoneNumber.trim() || undefined })
+      onCreated(res.data)
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to create staff')
-    } finally { setSaving(false) }
+      setServerError(err.response?.data?.error || 'Could not create the account.')
+      setSaving(false)
+    }
   }
 
-  if (loading) return <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>
+  return (
+    <Dialog icon={UserPlus} title="Add staff" onClose={onClose} maxWidth={520}>
+      <form onSubmit={submit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {serverError && <Notice>{serverError}</Notice>}
+        <Field label="Full name" htmlFor="s-name" error={errors.fullName}>
+          <input id="s-name" className="rr-input" autoComplete="off" value={form.fullName} onChange={set('fullName')} aria-invalid={!!errors.fullName} />
+        </Field>
+        <Field label="Government email" htmlFor="s-email" hint="Only @mp.gov.in or @nic.in addresses." error={errors.email}>
+          <input id="s-email" className="rr-input" type="email" autoComplete="off" value={form.email} onChange={set('email')} aria-invalid={!!errors.email} />
+        </Field>
+        <Field label="Mobile number (optional)" htmlFor="s-phone" error={errors.phoneNumber}>
+          <input id="s-phone" className="rr-input" type="tel" inputMode="tel" value={form.phoneNumber} onChange={set('phoneNumber')} aria-invalid={!!errors.phoneNumber} />
+        </Field>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+          A temporary password is shown once after creating the account. Give it to the officer in person; they must set their own password at first login.
+        </p>
+        <div className="rr-dialog__actions" style={{ padding: 0 }}>
+          <Button kind="text" onClick={onClose}>Cancel</Button>
+          <button type="submit" className="rr-btn rr-btn--primary" disabled={saving}><span className="rr-btn__label">{saving ? 'Creating…' : 'Create account'}</span></button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+export default function StaffAccounts() {
+  const { user } = useAuth()
+  const toast = useToast()
+  const [staff, setStaff] = useState(null)
+  const [error, setError] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [creds, setCreds] = useState(null)
+
+  const load = useCallback(() => {
+    setError(false)
+    api.get('/government/staff').then(res => setStaff(res.data)).catch(() => setError(true))
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const reset = async (s) => {
+    try {
+      const res = await api.post(`/government/staff/${s.id}/reset-password`)
+      setCreds({ title: 'Password reset', intro: `New temporary password for ${s.fullName}.`, login: res.data.email, password: res.data.tempPassword })
+      load()
+    } catch (err) {
+      toast(err.response?.data?.error || 'Could not reset the password.', { error: true })
+    }
+  }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-text-primary dark:text-text-primary-dark">Staff Accounts</h1>
-        <button onClick={() => setShowAdd(true)} className="btn-primary">+ Add Staff</button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: 22, lineHeight: '30px', fontWeight: 600 }}>Staff Accounts</h1>
+          <p style={{ margin: 0, color: 'var(--color-text-secondary)' }}>Government officers who can use this portal{staff ? ` · ${staff.length} account${staff.length === 1 ? '' : 's'}` : ''}</p>
+        </div>
+        <Button icon={UserPlus} onClick={() => setAdding(true)}>Add staff</Button>
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-surface-alt dark:bg-surface-alt-dark text-text-secondary dark:text-text-secondary-dark">
-              <th className="text-left p-3 font-medium">Name</th>
-              <th className="text-left p-3 font-medium">Email</th>
-              <th className="text-left p-3 font-medium">Phone</th>
-              <th className="text-left p-3 font-medium">Created</th>
-            </tr>
-          </thead>
+      {error && <Notice title="Could not load staff accounts." action={<Button kind="secondary" size="sm" icon={RefreshCw} onClick={load}>Retry</Button>}>Check your connection.</Notice>}
+
+      <div className="rr-table-wrap">
+        <table className="rr-table">
+          <thead><tr><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Phone</th><th scope="col">Created</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>
-            {staff.map(s => (
-              <tr key={s.id} className="border-t border-border dark:border-border-dark">
-                <td className="p-3 font-medium text-text-primary dark:text-text-primary-dark">{s.fullName}</td>
-                <td className="p-3 text-text-secondary">{s.email}</td>
-                <td className="p-3 text-text-secondary">{s.phoneNumber}</td>
-                <td className="p-3 text-text-secondary">{new Date(s.createdAt).toLocaleDateString()}</td>
-              </tr>
-            ))}
-            {staff.length === 0 && (
-              <tr><td colSpan="4" className="p-8 text-center text-text-secondary">No staff accounts yet</td></tr>
-            )}
+            {!staff && !error && [1, 2].map(i => <tr key={i}>{[60, 70, 40, 40, 30].map((w, j) => <td key={j}><Skeleton w={`${w}%`} /></td>)}</tr>)}
+            {staff?.map(s => {
+              const me = s.id === user?.id
+              return (
+                <tr key={s.id}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span aria-hidden style={{ flex: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 999, background: 'var(--color-primary-container)', color: 'var(--color-on-primary-container)', fontSize: 12, fontWeight: 600 }}>{initials(s.fullName)}</span>
+                      <span style={{ fontWeight: 600 }}>{s.fullName}</span>
+                      {me && <span className="rr-badge rr-badge--primary">You</span>}
+                      {s.mustChangePassword && !me && <span className="rr-badge rr-badge--warning">Temporary password</span>}
+                    </div>
+                  </td>
+                  <td>{s.email || '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{fmtPhone(s.phoneNumber)}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(s.createdAt)}</td>
+                  <td>{!me && <Button kind="text" size="sm" icon={KeyRound} onClick={() => reset(s)}>Reset Password</Button>}</td>
+                </tr>
+              )
+            })}
+            {staff?.length === 0 && <tr><td colSpan={5}><StateView icon={Users} title="No staff accounts" /></td></tr>}
           </tbody>
         </table>
       </div>
 
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAdd(false)}>
-          <div className="w-full max-w-md bg-surface dark:bg-surface-dark rounded-xl p-6 m-4" onClick={e => e.stopPropagation()}>
-            <h2 className="text-xl font-bold text-text-primary dark:text-text-primary-dark mb-4">Add Staff Account</h2>
-            <form onSubmit={handleAdd} className="space-y-3">
-              <input type="text" placeholder="Full Name *" className="input-field" value={form.fullName} onChange={e => setForm(f => ({ ...f, fullName: e.target.value }))} required />
-              <input type="email" placeholder="Email *" className="input-field" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
-              <input type="password" placeholder="Password * (min 6 chars)" className="input-field" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={6} />
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 px-4 py-2 rounded-xl border border-border text-text-secondary">Cancel</button>
-                <button type="submit" disabled={saving} className="btn-primary flex-1">{saving ? 'Creating...' : 'Create Staff'}</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {adding && <AddStaff onClose={() => setAdding(false)} onCreated={(s) => {
+        setAdding(false)
+        load()
+        setCreds({ title: 'Account created', intro: `${s.fullName} can now log in to the Government Portal.`, login: s.email, password: s.tempPassword })
+      }} />}
+      {creds && <CredentialsDialog {...creds} onClose={() => setCreds(null)} />}
     </div>
   )
 }

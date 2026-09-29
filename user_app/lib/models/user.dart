@@ -4,6 +4,7 @@ class User {
   final String phoneNumber;
   final String? email;
   final int cityId;
+  final String? cityName;
   final String role;
   final bool phoneVerified;
 
@@ -13,6 +14,7 @@ class User {
     required this.phoneNumber,
     this.email,
     required this.cityId,
+    this.cityName,
     required this.role,
     this.phoneVerified = false,
   });
@@ -23,6 +25,7 @@ class User {
     phoneNumber: json['phoneNumber'] ?? json['phone_number'],
     email: json['email'],
     cityId: json['cityId'] ?? json['city_id'],
+    cityName: json['city'] is Map ? json['city']['name'] : null,
     role: json['role'],
     phoneVerified: json['phoneVerified'] ?? json['phone_verified'] ?? false,
   );

@@ -3,6 +3,27 @@ import api from '../services/api'
 
 const AuthContext = createContext(null)
 
+// Returns the token's claims, or null if it is malformed or expired.
+function decodeToken(token) {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    if (payload.exp && payload.exp * 1000 < Date.now()) return null
+    return payload
+  } catch {
+    return null
+  }
+}
+
+function userFromPayload(payload) {
+  return {
+    id: payload.id,
+    role: payload.role,
+    hospitalId: payload.hospitalId,
+    fullName: payload.fullName || '',
+    mustChangePassword: !!payload.mustChangePassword,
+  }
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [hospitalName, setHospitalName] = useState(localStorage.getItem('hospitalName') || '')
@@ -11,27 +32,33 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]))
-        setUser({ id: payload.id, role: payload.role, hospitalId: payload.hospitalId, fullName: payload.fullName || '' })
-      } catch {}
+      const payload = decodeToken(token)
+      if (payload) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`
+        setUser(userFromPayload(payload))
+      } else {
+        localStorage.removeItem('token')
+        localStorage.removeItem('hospitalName')
+        setToken(null)
+        setUser(null)
+      }
     }
     setLoading(false)
   }, [token])
 
   const login = async (identifier, password) => {
     const res = await api.post('/auth/login', { identifier, password })
-    const { token: newToken, mustChangePassword, hospitalName: hospName } = res.data
+    const { token: newToken, mustChangePassword, hospitalName: hospName, user: account } = res.data
+    if (account?.role !== 'hospital') {
+      throw { response: { data: { error: 'This portal is for hospital accounts only' } } }
+    }
     localStorage.setItem('token', newToken)
     if (hospName) localStorage.setItem('hospitalName', hospName)
     api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-    const payload = JSON.parse(atob(newToken.split('.')[1]))
-    setUser({ id: payload.id, role: payload.role, hospitalId: payload.hospitalId, fullName: payload.fullName || '' })
+    setUser(userFromPayload(decodeToken(newToken)))
     setHospitalName(hospName || '')
     setToken(newToken)
-    if (mustChangePassword) return { mustChangePassword: true }
-    return {}
+    return { mustChangePassword: !!mustChangePassword }
   }
 
   const logout = () => {

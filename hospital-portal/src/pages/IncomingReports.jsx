@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useAuth } from '../context/AuthContext'
-import { connectHospital, disconnect, onNewReport } from '../services/socket'
+import { onNewReport, onReportAccepted } from '../services/socket'
 import api from '../services/api'
+import ReportPhoto from '../components/ReportPhoto'
+import VoiceNote from '../components/VoiceNote'
 
 const severityColors = {
   MinorScratch: 'bg-warning/20 text-warning dark:text-warning-dark',
@@ -14,27 +15,31 @@ export default function IncomingReports() {
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(true)
   const [accepting, setAccepting] = useState(null)
-  const { user } = useAuth()
+  const [error, setError] = useState('')
 
   const loadReports = useCallback(async () => {
     try {
       const res = await api.get('/hospital/incoming-reports')
       setReports(res.data)
-    } catch {} finally {
+      setError('')
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not load reports')
+    } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadReports()
-    if (user?.hospitalId) {
-      connectHospital(user.hospitalId)
-      const cleanup = onNewReport((report) => {
-        setReports(prev => [report, ...prev])
-      })
-      return () => { cleanup(); disconnect() }
-    }
-  }, [loadReports, user])
+    const offNew = onNewReport((report) => {
+      setReports(prev => prev.some(r => r.id === report.id) ? prev : [report, ...prev])
+    })
+    // Another hospital took it — remove it so staff don't try to accept it too.
+    const offAccepted = onReportAccepted(({ reportId }) => {
+      setReports(prev => prev.filter(r => r.id !== reportId))
+    })
+    return () => { offNew(); offAccepted() }
+  }, [loadReports])
 
   const handleAccept = async (id) => {
     setAccepting(id)
@@ -43,6 +48,9 @@ export default function IncomingReports() {
       setReports(prev => prev.filter(r => r.id !== id))
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to accept')
+      if (err.response?.status === 409 || err.response?.status === 404) {
+        setReports(prev => prev.filter(r => r.id !== id))
+      }
     } finally {
       setAccepting(null)
     }
@@ -60,6 +68,7 @@ export default function IncomingReports() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-text-primary dark:text-text-primary-dark mb-6">Incoming Reports</h1>
+      {error && <div className="bg-danger/10 text-danger dark:text-danger-dark p-3 rounded-lg text-sm mb-4">{error}</div>}
       {reports.length === 0 ? (
         <div className="card p-8 text-center">
           <p className="text-4xl mb-3">📭</p>
@@ -80,7 +89,17 @@ export default function IncomingReports() {
                 <div className="text-sm text-text-secondary dark:text-text-secondary-dark space-y-0.5">
                   <p>📞 {report.contactNumber}</p>
                   <p>🐾 {report.animalType} · {report.animalStatus.replace(/([A-Z])/g, ' $1').trim()}</p>
-                  <p>📍 {report.latitude?.toFixed(4)}, {report.longitude?.toFixed(4)}</p>
+                  <p>
+                    📍 <a className="text-primary dark:text-primary-dark hover:underline" target="_blank" rel="noreferrer"
+                      href={`https://www.google.com/maps/search/?api=1&query=${report.latitude},${report.longitude}`}>
+                      {report.latitude?.toFixed(4)}, {report.longitude?.toFixed(4)}
+                    </a>
+                  </p>
+                  {report.description && (
+                    <p className="italic text-text-primary dark:text-text-primary-dark">“{report.description}”</p>
+                  )}
+                  {report.photoUrl && <ReportPhoto reportId={report.id} />}
+                  {report.voiceSeconds != null && <VoiceNote reportId={report.id} seconds={report.voiceSeconds} />}
                 </div>
               </div>
               <div className="flex flex-col items-end gap-2 shrink-0">

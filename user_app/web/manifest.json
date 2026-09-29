@@ -1,11 +1,11 @@
 {
-    "name": "user_app",
-    "short_name": "user_app",
+    "name": "Rabies Response",
+    "short_name": "Rabies Response",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#F7F3EC",
+    "theme_color": "#1E4D5A",
+    "description": "Report animal bites and find a hospital fast. Jabalpur.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

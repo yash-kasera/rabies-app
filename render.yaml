@@ -1,0 +1,31 @@
+# Render blueprint for the backend API (free plan, Singapore = closest region to India).
+# Secrets marked sync:false are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: rabies-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: backend
+    buildCommand: npm ci && npx prisma generate && npx prisma migrate deploy
+    startCommand: node index.js
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: TRUST_PROXY
+        value: "1"
+      # Supabase "Transaction pooler" URI (port 6543) + ?pgbouncer=true&connection_limit=5
+      - key: DATABASE_URL
+        sync: false
+      # Supabase "Session pooler" URI (port 5432), used for migrations
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      # Browser origins allowed to call the API: citizen web app + both portals (Cloudflare)
+      - key: CORS_ORIGINS
+        value: "https://rabies-jabalpur.rabies.workers.dev,https://rabies-jabalpur-gov.rabies.workers.dev,https://rabies-jabalpur-hospital.rabies.workers.dev"
